@@ -1,0 +1,71 @@
+# Predicting Task Activation from Resting State Data — Configuration
+
+# Data
+subjects:
+  train: [1, 2, 5]
+  test: [7]
+data_root: "."
+output_root: "outputs"
+
+# Feature extraction
+features:
+  type: "clip"  # clip, dinov2, clip_dinov2, vgg16
+  clip_model: "ViT-L/14"
+  dinov2_model: "dinov2_vitl14"
+  batch_size: 64
+  device: "cuda"
+
+# Reproducibility
+random_seed: 42
+fewshot_n_repeats: 5
+
+# REST preprocessing
+rest_preprocessing:
+  discard_initial_trs: 5
+  detrend: true
+  highpass_cutoff_hz: 0.01
+  motion_censoring:
+    enabled: true
+    fd_threshold_mm: 0.5
+    max_censored_fraction: 0.3  # exclude run if > 30% censored
+  nuisance_regression: false
+  zscore: true
+  min_usable_trs: 100  # minimum total TRs across all runs per subject
+
+# Alignment
+alignment:
+  n_components: 50
+  min_k: 10
+  connectivity_mode: "parcellation"  # parcellation (REQUIRED for zero-shot) or voxel_correlation
+  experiment_mode: "hybrid_cha"  # strict_rest_cha, hybrid_cha, mixed_connectivity
+  atlas_type: "combined_rois"  # kastner, combined_rois, schaefer400
+  atlas_harmonize: "intersection"
+  ensemble_method: "average"
+  max_iters: 10
+  tol: 1.0e-5
+
+# Compute policy
+compute:
+  dtype: "float32"
+  use_randomized_svd: true
+  randomized_svd_oversampling: 10
+  memmap_threshold_gb: 2.0
+
+# Encoding
+encoding:
+  model_type: "ridge"
+  ridge_alpha: 100.0
+  # Neural encoder (stretch goal)
+  hidden_dim: 2048
+  dropout: 0.3
+  learning_rate: 1.0e-4
+  epochs: 100
+  batch_size: 256
+
+# Evaluation
+evaluation:
+  metrics: ["voxelwise_correlation", "pattern_correlation", "two_vs_two"]
+  noise_ceiling_method: "split_half"
+  reliability_thresholds: [0.0, 0.1, 0.3]  # all, reliable, high-SNR
+  nc_floor: 0.1  # floor for normalized performance ratio
+  fewshot_shots: [0, 10, 25, 50, 100, 250, 500, 750]
