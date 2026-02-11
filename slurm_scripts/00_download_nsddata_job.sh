@@ -13,12 +13,7 @@ set -euo pipefail
 
 PROJECT_DIR="${PROJECT_DIR:-/home/rothermm/resting_prediction}"
 LOG_DIR="${LOG_DIR:-${PROJECT_DIR}/slurm_logs}"
-CONDA_ENV="${CONDA_ENV:-resting-prediction}"
-
-if [[ "${CONDA_ENV}" == --* ]]; then
-  echo "WARNING: CONDA_ENV='${CONDA_ENV}' looks like a CLI flag. Resetting to 'resting-prediction'."
-  CONDA_ENV="resting-prediction"
-fi
+CONDA_ENV="resting-prediction"
 
 mkdir -p "${LOG_DIR}"
 
@@ -31,6 +26,7 @@ echo "Download script args: $*"
 
 module purge
 module load miniconda
+echo "Loaded miniconda"
 
 source "${CONDA_ROOT}/bin/activate"
 eval "$(conda shell.bash hook)"
@@ -38,6 +34,7 @@ conda activate "${CONDA_ENV}"
 echo "Activated Conda environment: $(which python)"
 
 cd "${PROJECT_DIR}"
+echo "Starting download_nsddata.py with args: $*"
 python -u download_nsddata.py "$@" 2>&1 | tee "${LOG_DIR}/download_nsd_${SLURM_JOB_ID}.debug.log"
 status=${PIPESTATUS[0]}
 
