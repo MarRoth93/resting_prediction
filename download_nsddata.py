@@ -67,12 +67,28 @@ def s3_list(path: str) -> list[str]:
     return files
 
 
-def extract_run_id(filename: str) -> int | None:
-    """Extract run number from filenames containing 'runXX'."""
+def extract_session_run_key(filename: str) -> tuple[int | None, int] | None:
+    """
+    Extract (session_id, run_id) from filenames.
+
+    Supports patterns like:
+    - ...session40...run01...
+    - ...run01...session40...
+    - ...run01... (session unknown)
+    """
+    m = re.search(r"session(\d+).*run(\d+)", filename)
+    if m is not None:
+        return int(m.group(1)), int(m.group(2))
+
+    m = re.search(r"run(\d+).*session(\d+)", filename)
+    if m is not None:
+        return int(m.group(2)), int(m.group(1))
+
     m = re.search(r"run(\d+)", filename)
-    if m is None:
-        return None
-    return int(m.group(1))
+    if m is not None:
+        return None, int(m.group(1))
+
+    return None
 
 
 def is_rest_design_file(s3_path: str) -> bool:
@@ -88,7 +104,11 @@ def is_rest_design_file(s3_path: str) -> bool:
     if not AWS_SIGNED_REQUEST:
         cmd.append("--no-sign-request")
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
+    except subprocess.TimeoutExpired:
+        logger.warning(f"Timed out reading design file {s3_path}")
+        return False
     if result.returncode != 0:
         logger.warning(f"Failed to read design file {s3_path}: {result.stderr.strip()}")
         return False
@@ -271,15 +291,18 @@ def discover_rest_runs(sub: int) -> list[str]:
 
     logger.info(f"  Subject {sub}: found {len(all_files)} timeseries files total")
 
-    # Build run-id -> timeseries filename map
-    ts_by_run = {}
+    # Build lookup maps for timeseries files
+    ts_by_key: dict[tuple[int | None, int], str] = {}
+    ts_by_run: dict[int, list[str]] = {}
     for f in all_files:
         if not f.endswith(".nii.gz"):
             continue
-        rid = extract_run_id(f)
-        if rid is None:
+        key = extract_session_run_key(f)
+        if key is None:
             continue
-        ts_by_run[rid] = f
+        ts_by_key[key] = f
+        _, rid = key
+        ts_by_run.setdefault(rid, []).append(f)
 
     # Primary method: design-based REST detection
     design_s3_path = (
@@ -290,22 +313,52 @@ def discover_rest_runs(sub: int) -> list[str]:
 
     if design_files:
         logger.info(f"  Subject {sub}: found {len(design_files)} design files")
-        rest_run_ids = []
-        for dfile in sorted(design_files):
+        rest_files = []
+        ambiguous_matches = 0
+        unmatched_design = 0
+        sorted_design_files = sorted(design_files)
+        for i, dfile in enumerate(sorted_design_files, start=1):
+            if i == 1 or i % 25 == 0 or i == len(sorted_design_files):
+                logger.info(f"  Subject {sub}: scanning design files {i}/{len(sorted_design_files)}")
             if not dfile.endswith(".tsv"):
                 continue
-            rid = extract_run_id(dfile)
-            if rid is None or rid not in ts_by_run:
+            dkey = extract_session_run_key(dfile)
+            if dkey is None:
                 continue
+            sess_id, rid = dkey
+            candidate = None
+
+            # Prefer exact session+run match when available
+            if dkey in ts_by_key:
+                candidate = ts_by_key[dkey]
+            else:
+                candidates = sorted(set(ts_by_run.get(rid, [])))
+                if len(candidates) == 1:
+                    candidate = candidates[0]
+                elif len(candidates) > 1:
+                    ambiguous_matches += 1
+                    continue
+                else:
+                    unmatched_design += 1
+                    continue
+
             dfile_s3 = f"{design_s3_path}{dfile}"
             if is_rest_design_file(dfile_s3):
-                rest_run_ids.append(rid)
+                rest_files.append(candidate)
 
-        rest_files = [ts_by_run[rid] for rid in sorted(set(rest_run_ids))]
+        rest_files = sorted(set(rest_files))
         if rest_files:
             logger.info(
                 f"  Subject {sub}: {len(rest_files)} REST files (detected from design/*.tsv)"
             )
+            if ambiguous_matches > 0:
+                logger.warning(
+                    f"  Subject {sub}: skipped {ambiguous_matches} ambiguous design->timeseries matches"
+                )
+            if unmatched_design > 0:
+                logger.info(
+                    f"  Subject {sub}: {unmatched_design} design files had no matching timeseries file"
+                )
             return rest_files
         logger.warning(
             f"  Subject {sub}: design files found, but no REST runs detected by zero-design heuristic"
