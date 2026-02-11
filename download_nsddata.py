@@ -45,6 +45,14 @@ def run_cmd(cmd: str, description: str = "") -> bool:
     return True
 
 
+def local_file_ready(path: str, min_bytes: int = 1) -> bool:
+    """Return True if local file exists and has at least min_bytes."""
+    try:
+        return os.path.exists(path) and os.path.getsize(path) >= min_bytes
+    except OSError:
+        return False
+
+
 def s3_list(path: str) -> list[str]:
     """List files at an S3 path. Returns list of filenames."""
     cmd = ["aws", "s3", "ls", path]
@@ -139,16 +147,20 @@ def download_experiment_info():
     logger.info("=" * 60)
     logger.info("Downloading experiment info...")
     os.makedirs("nsddata/experiments/nsd", exist_ok=True)
-    run_cmd(
-        f"aws s3 cp {S3_BASE}/nsddata/experiments/nsd/nsd_expdesign.mat "
-        f"nsddata/experiments/nsd/",
-        "  nsd_expdesign.mat",
-    )
-    run_cmd(
-        f"aws s3 cp {S3_BASE}/nsddata/experiments/nsd/nsd_stim_info_merged.pkl "
-        f"nsddata/experiments/nsd/",
-        "  nsd_stim_info_merged.pkl",
-    )
+    targets = [
+        "nsd_expdesign.mat",
+        "nsd_stim_info_merged.pkl",
+    ]
+    for fname in targets:
+        local_path = os.path.join("nsddata/experiments/nsd", fname)
+        if local_file_ready(local_path):
+            logger.info(f"  {fname}: already exists, skipping")
+            continue
+        run_cmd(
+            f"aws s3 cp {S3_BASE}/nsddata/experiments/nsd/{fname} "
+            f"nsddata/experiments/nsd/",
+            f"  {fname}",
+        )
 
 
 # ── 2. Stimuli ───────────────────────────────────────────────────────────────
@@ -158,6 +170,10 @@ def download_stimuli():
     logger.info("=" * 60)
     logger.info("Downloading stimuli (~26 GB)...")
     os.makedirs("nsddata_stimuli/stimuli/nsd", exist_ok=True)
+    local_path = "nsddata_stimuli/stimuli/nsd/nsd_stimuli.hdf5"
+    if local_file_ready(local_path):
+        logger.info("  nsd_stimuli.hdf5: already exists, skipping")
+        return
     run_cmd(
         f"aws s3 cp {S3_BASE}/nsddata_stimuli/stimuli/nsd/nsd_stimuli.hdf5 "
         f"nsddata_stimuli/stimuli/nsd/",
@@ -208,7 +224,7 @@ def download_betas():
                 f"func1pt8mm/betas_fithrf_GLMdenoise_RR/{fname}"
             )
             local_path = os.path.join(out_dir, fname)
-            if os.path.exists(local_path):
+            if local_file_ready(local_path):
                 logger.info(f"    Session {sess}: already exists, skipping")
                 continue
             run_cmd(f"aws s3 cp {s3_path} {out_dir}", f"    Session {sess}")
@@ -239,7 +255,7 @@ def download_rois():
 
         for roi_file in roi_files:
             local_path = os.path.join(out_dir, roi_file)
-            if os.path.exists(local_path):
+            if local_file_ready(local_path):
                 logger.info(f"  Subject {sub}/{roi_file}: already exists, skipping")
                 continue
             s3_path = (
@@ -262,7 +278,7 @@ def download_ncsnr():
             f"func1pt8mm/betas_fithrf_GLMdenoise_RR/ncsnr.nii.gz"
         )
         local_path = os.path.join(out_dir, "ncsnr.nii.gz")
-        if os.path.exists(local_path):
+        if local_file_ready(local_path):
             logger.info(f"  Subject {sub}: already exists, skipping")
             continue
         run_cmd(f"aws s3 cp {s3_path} {out_dir}", f"  Subject {sub}: ncsnr.nii.gz")
@@ -383,7 +399,42 @@ def download_rest_timeseries():
     logger.info("Downloading REST timeseries...")
 
     for sub in SUBJECTS:
-        rest_files = discover_rest_runs(sub)
+        out_dir = (
+            f"nsddata_timeseries/ppdata/subj{sub:02d}/func1pt8mm/timeseries/"
+        )
+        os.makedirs(out_dir, exist_ok=True)
+
+        manifest_dir = f"processed_data/subj{sub:02d}"
+        os.makedirs(manifest_dir, exist_ok=True)
+        manifest_path = os.path.join(manifest_dir, "rest_run_manifest.json")
+
+        rest_files = []
+        if os.path.exists(manifest_path):
+            try:
+                with open(manifest_path) as f:
+                    manifest = json.load(f)
+                manifest_runs = manifest.get("rest_runs", [])
+                if manifest_runs:
+                    missing = [
+                        rf for rf in manifest_runs
+                        if not local_file_ready(os.path.join(out_dir, rf))
+                    ]
+                    if not missing:
+                        logger.info(
+                            f"  Subject {sub}: REST files already present from manifest "
+                            f"({len(manifest_runs)} runs), skipping download"
+                        )
+                        continue
+                    logger.info(
+                        f"  Subject {sub}: manifest found with {len(manifest_runs)} runs, "
+                        f"{len(missing)} missing locally"
+                    )
+                    rest_files = manifest_runs
+            except Exception as e:
+                logger.warning(f"  Subject {sub}: failed to read manifest {manifest_path}: {e}")
+
+        if not rest_files:
+            rest_files = discover_rest_runs(sub)
 
         if len(rest_files) < 2:
             logger.warning(
@@ -393,14 +444,9 @@ def download_rest_timeseries():
             if not rest_files:
                 continue
 
-        out_dir = (
-            f"nsddata_timeseries/ppdata/subj{sub:02d}/func1pt8mm/timeseries/"
-        )
-        os.makedirs(out_dir, exist_ok=True)
-
         for rest_file in rest_files:
             local_path = os.path.join(out_dir, rest_file)
-            if os.path.exists(local_path):
+            if local_file_ready(local_path):
                 logger.info(f"    {rest_file}: already exists, skipping")
                 continue
             s3_path = (
@@ -410,9 +456,6 @@ def download_rest_timeseries():
             run_cmd(f"aws s3 cp {s3_path} {out_dir}", f"    {rest_file}")
 
         # Save manifest
-        manifest_dir = f"processed_data/subj{sub:02d}"
-        os.makedirs(manifest_dir, exist_ok=True)
-        manifest_path = os.path.join(manifest_dir, "rest_run_manifest.json")
         with open(manifest_path, "w") as f:
             json.dump({"rest_runs": rest_files, "subject": sub}, f, indent=2)
         logger.info(f"  Subject {sub}: saved REST manifest ({len(rest_files)} runs)")
