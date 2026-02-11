@@ -15,6 +15,11 @@ PROJECT_DIR="${PROJECT_DIR:-/home/rothermm/resting_prediction}"
 LOG_DIR="${LOG_DIR:-${PROJECT_DIR}/slurm_logs}"
 CONDA_ENV="${CONDA_ENV:-resting-prediction}"
 
+if [[ "${CONDA_ENV}" == --* ]]; then
+  echo "WARNING: CONDA_ENV='${CONDA_ENV}' looks like a CLI flag. Resetting to 'resting-prediction'."
+  CONDA_ENV="resting-prediction"
+fi
+
 mkdir -p "${LOG_DIR}"
 
 echo "==== Job started on $(hostname) at $(date) ===="
