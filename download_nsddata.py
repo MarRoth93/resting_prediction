@@ -28,12 +28,15 @@ logger = logging.getLogger(__name__)
 
 SUBJECTS = [1, 2, 5, 7]
 S3_BASE = "s3://natural-scenes-dataset"
+AWS_SIGNED_REQUEST = False
 
 
 def run_cmd(cmd: str, description: str = "") -> bool:
     """Run a shell command, return True if successful."""
     if description:
         logger.info(description)
+    if cmd.strip().startswith("aws ") and not AWS_SIGNED_REQUEST and "--no-sign-request" not in cmd:
+        cmd = f"{cmd} --no-sign-request"
     result = os.system(cmd)
     if result != 0:
         logger.warning(f"Command failed (exit {result}): {cmd}")
@@ -43,8 +46,11 @@ def run_cmd(cmd: str, description: str = "") -> bool:
 
 def s3_list(path: str) -> list[str]:
     """List files at an S3 path. Returns list of filenames."""
+    cmd = ["aws", "s3", "ls", path]
+    if not AWS_SIGNED_REQUEST:
+        cmd.append("--no-sign-request")
     result = subprocess.run(
-        ["aws", "s3", "ls", path],
+        cmd,
         capture_output=True, text=True,
     )
     if result.returncode != 0:
@@ -282,12 +288,24 @@ def download_rest_timeseries():
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
+    global AWS_SIGNED_REQUEST
+
     parser = argparse.ArgumentParser(description="Download NSD data from AWS S3")
     parser.add_argument("--skip-stimuli", action="store_true", help="Skip 26GB stimuli download")
     parser.add_argument("--skip-rest", action="store_true", help="Skip REST timeseries")
     parser.add_argument("--skip-betas", action="store_true", help="Skip task betas")
     parser.add_argument("--only-rest", action="store_true", help="Download only REST data")
+    parser.add_argument(
+        "--signed-request",
+        action="store_true",
+        help="Use signed AWS requests (default is unsigned --no-sign-request)",
+    )
     args = parser.parse_args()
+    AWS_SIGNED_REQUEST = args.signed_request
+    logger.info(
+        "AWS request mode: %s",
+        "signed" if AWS_SIGNED_REQUEST else "unsigned (--no-sign-request)",
+    )
 
     if args.only_rest:
         download_rest_timeseries()
