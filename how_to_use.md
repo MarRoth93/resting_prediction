@@ -468,6 +468,12 @@ python -m src.pipelines.run_ablations \
 | `--model-dir` | str | `outputs/shared_space` | Path to trained model |
 | `--data-root` | str | `processed_data` | Path to processed data |
 | `--output-dir` | str | `outputs/ablations` | Output directory |
+| `--n-bootstrap` | int | `5000` | Bootstrap resamples for confidence intervals |
+| `--ci-level` | float | `95.0` | Confidence interval level (percent) |
+| `--n-permutations` | int | `10000` | Permutations for significance tests |
+| `--permutation-metric` | str | `median_r` | Metric used for permutation tests |
+| `--permutation-reference-condition` | int | `0` | Preferred reference condition for permutation tests |
+| `--fdr-alpha` | float | `0.05` | BH-FDR alpha for multiple-comparison correction |
 
 ### Config options used
 
@@ -476,12 +482,21 @@ python -m src.pipelines.run_ablations \
 | `evaluation.fewshot_shots` | `[0, 10, 25, 50, 100, 250, 500, 750]` | Shot counts to sweep |
 | `fewshot_n_repeats` | `5` | Random splits per shot count |
 | `random_seed` | `42` | Base seed (incremented per repeat) |
+| `evaluation.statistics.ci_level` | `95.0` | Confidence interval level |
+| `evaluation.statistics.n_bootstrap` | `5000` | Bootstrap resamples |
+| `evaluation.statistics.n_permutations` | `10000` | Permutation count |
+| `evaluation.statistics.permutation_metric` | `median_r` | Metric for permutation p-values |
+| `evaluation.statistics.permutation_reference_condition` | `0` | Preferred reference condition |
+| `evaluation.statistics.fdr_alpha` | `0.05` | BH-FDR threshold |
 
 ### How it works
 
 - `N=0` runs zero-shot (single run, no random split).
 - For each `N > 0`, runs `n_repeats` random splits with seeds `base_seed, base_seed+1, ...`.
 - Reports mean and standard deviation of median voxelwise correlation across repeats.
+- Computes bootstrap confidence intervals per condition for key metrics.
+- Computes permutation-test p-values for condition improvements vs a reference condition (prefers `N=0`; falls back to first condition with >=2 repeats).
+- Applies Benjamini-Hochberg FDR correction across permutation tests and reports q-values/significance flags.
 
 ### Outputs
 
@@ -490,6 +505,8 @@ Saved to `outputs/ablations/fewshot/`:
 | File | Description |
 |------|-------------|
 | `fewshot_ablation.json` | Summary: per-N median_r, std, all repeat metrics |
+| `fewshot_summary.csv` | Per-condition table with mean/std/CI, permutation p-values, BH q-values, and reject flags |
+| `fewshot_statistics.json` | Statistical settings + structured summary rows |
 | `fewshot_sub7_N{X}_seed{Y}_pred.npy` | Individual predictions |
 | `fewshot_sub7_N{X}_seed{Y}_metrics.json` | Individual metrics |
 
@@ -541,6 +558,15 @@ python -m pytest tests/test_shapes.py::TestSVDBasis::test_parcellation_shape -v
 | `test_shared_space_alignment` | CHA alignment recovers cross-subject structure |
 | `test_encoder_prediction` | Encoder learns in shared space |
 | `test_shared_space_builder_roundtrip` | Save/load preserves all state |
+
+**`tests/test_statistics.py`** — 4 unit tests:
+
+| Test | What it checks |
+|------|----------------|
+| `test_single_value_returns_degenerate_interval` | Bootstrap CI for singleton sample |
+| `test_mean_is_inside_interval` | Bootstrap CI sanity on simple sample |
+| `test_detects_large_difference` | Permutation test detects large effect |
+| `test_builds_rows_and_metric_columns` | Condition summary includes CI + p-value fields |
 
 ---
 

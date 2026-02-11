@@ -69,3 +69,10 @@ evaluation:
   reliability_thresholds: [0.0, 0.1, 0.3]  # all, reliable, high-SNR
   nc_floor: 0.1  # floor for normalized performance ratio
   fewshot_shots: [0, 10, 25, 50, 100, 250, 500, 750]
+  statistics:
+    ci_level: 95.0
+    n_bootstrap: 5000
+    n_permutations: 10000
+    permutation_metric: "median_r"
+    permutation_reference_condition: 0
+    fdr_alpha: 0.05
