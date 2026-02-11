@@ -20,6 +20,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 
@@ -64,6 +65,51 @@ def s3_list(path: str) -> list[str]:
             if len(parts) >= 4:
                 files.append(parts[-1])
     return files
+
+
+def extract_run_id(filename: str) -> int | None:
+    """Extract run number from filenames containing 'runXX'."""
+    m = re.search(r"run(\d+)", filename)
+    if m is None:
+        return None
+    return int(m.group(1))
+
+
+def is_rest_design_file(s3_path: str) -> bool:
+    """
+    Determine if a design TSV corresponds to REST.
+
+    Heuristic:
+    - Parse numeric tokens per row.
+    - If a row has >1 numeric column, ignore first column (often index/time).
+    - REST if all inspected numeric values are ~0.
+    """
+    cmd = ["aws", "s3", "cp", s3_path, "-"]
+    if not AWS_SIGNED_REQUEST:
+        cmd.append("--no-sign-request")
+
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        logger.warning(f"Failed to read design file {s3_path}: {result.stderr.strip()}")
+        return False
+
+    inspected_values = []
+    for line in result.stdout.splitlines():
+        nums = []
+        for tok in line.strip().split():
+            try:
+                nums.append(float(tok))
+            except ValueError:
+                continue
+        if not nums:
+            continue
+        vals = nums[1:] if len(nums) > 1 else nums
+        inspected_values.extend(vals)
+
+    if not inspected_values:
+        return False
+
+    return all(abs(v) < 1e-12 for v in inspected_values)
 
 
 # ── 1. Experiment design ─────────────────────────────────────────────────────
@@ -225,21 +271,55 @@ def discover_rest_runs(sub: int) -> list[str]:
 
     logger.info(f"  Subject {sub}: found {len(all_files)} timeseries files total")
 
-    # Filter for REST runs
-    rest_files = [f for f in all_files if "rest" in f.lower()]
+    # Build run-id -> timeseries filename map
+    ts_by_run = {}
+    for f in all_files:
+        if not f.endswith(".nii.gz"):
+            continue
+        rid = extract_run_id(f)
+        if rid is None:
+            continue
+        ts_by_run[rid] = f
 
+    # Primary method: design-based REST detection
+    design_s3_path = (
+        f"{S3_BASE}/nsddata_timeseries/ppdata/subj{sub:02d}/"
+        f"func1pt8mm/design/"
+    )
+    design_files = s3_list(design_s3_path)
+
+    if design_files:
+        logger.info(f"  Subject {sub}: found {len(design_files)} design files")
+        rest_run_ids = []
+        for dfile in sorted(design_files):
+            if not dfile.endswith(".tsv"):
+                continue
+            rid = extract_run_id(dfile)
+            if rid is None or rid not in ts_by_run:
+                continue
+            dfile_s3 = f"{design_s3_path}{dfile}"
+            if is_rest_design_file(dfile_s3):
+                rest_run_ids.append(rid)
+
+        rest_files = [ts_by_run[rid] for rid in sorted(set(rest_run_ids))]
+        if rest_files:
+            logger.info(
+                f"  Subject {sub}: {len(rest_files)} REST files (detected from design/*.tsv)"
+            )
+            return rest_files
+        logger.warning(
+            f"  Subject {sub}: design files found, but no REST runs detected by zero-design heuristic"
+        )
+
+    # Fallback method: filename matching
+    rest_files = [f for f in all_files if "rest" in f.lower()]
     if rest_files:
-        logger.info(f"  Subject {sub}: {len(rest_files)} REST files (matched 'rest' pattern)")
+        logger.info(f"  Subject {sub}: {len(rest_files)} REST files (matched filename pattern)")
         return sorted(rest_files)
 
-    # No 'rest' pattern — log all files for manual inspection
     logger.warning(
-        f"  Subject {sub}: no files matching 'rest' pattern. "
+        f"  Subject {sub}: no REST runs found by design-based detection or filename matching. "
         f"Available files: {all_files[:10]}{'...' if len(all_files) > 10 else ''}"
-    )
-    logger.warning(
-        f"  Check NSD documentation for REST run naming convention. "
-        f"You may need to update this function."
     )
     return []
 
