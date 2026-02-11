@@ -34,7 +34,7 @@ Train on NSD subjects 1, 2, 5 and predict fMRI task activation for subject 7 usi
 ## 2. Installation
 
 ```bash
-cd /home/marco/Marco/resting_prediction
+cd /home/rothermm/resting_prediction
 pip install -r requirements.txt
 ```
 

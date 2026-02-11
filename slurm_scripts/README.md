@@ -19,15 +19,15 @@ These scripts follow your existing server pattern:
 ## Default Paths
 
 All scripts assume project path:
-- `/home/marco/Marco/resting_prediction`
+- `/home/rothermm/resting_prediction`
 
 Logs are written to:
-- `/home/marco/Marco/resting_prediction/slurm_logs`
+- `/home/rothermm/resting_prediction/slurm_logs`
 
 ## One-command submission
 
 ```bash
-bash /home/marco/Marco/resting_prediction/slurm_scripts/submit_full_pipeline.sh
+bash /home/rothermm/resting_prediction/slurm_scripts/submit_full_pipeline.sh
 ```
 
 ## Environment overrides
@@ -36,8 +36,8 @@ You can override environment variables at submit time, for example:
 
 ```bash
 CONDA_ENV=myenv \
-PROJECT_DIR=/home/marco/Marco/resting_prediction \
-sbatch /home/marco/Marco/resting_prediction/slurm_scripts/04_train_shared_space_job.sh
+PROJECT_DIR=/home/rothermm/resting_prediction \
+sbatch /home/rothermm/resting_prediction/slurm_scripts/04_train_shared_space_job.sh
 ```
 
 Common overrides:

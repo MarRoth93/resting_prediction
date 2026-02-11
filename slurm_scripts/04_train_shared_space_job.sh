@@ -5,13 +5,13 @@
 #SBATCH --mem=128G
 #SBATCH --time=12:00:00
 #SBATCH --partition=normal
-#SBATCH --output=/home/marco/Marco/resting_prediction/slurm_logs/%x_%j.out
-#SBATCH --error=/home/marco/Marco/resting_prediction/slurm_logs/%x_%j.err
-#SBATCH --chdir=/home/marco/Marco/resting_prediction
+#SBATCH --output=/home/rothermm/resting_prediction/slurm_logs/%x_%j.out
+#SBATCH --error=/home/rothermm/resting_prediction/slurm_logs/%x_%j.err
+#SBATCH --chdir=/home/rothermm/resting_prediction
 
 set -euo pipefail
 
-PROJECT_DIR="${PROJECT_DIR:-/home/marco/Marco/resting_prediction}"
+PROJECT_DIR="${PROJECT_DIR:-/home/rothermm/resting_prediction}"
 LOG_DIR="${LOG_DIR:-${PROJECT_DIR}/slurm_logs}"
 CONDA_ENV="${CONDA_ENV:-resting-prediction}"
 CONFIG_PATH="${CONFIG_PATH:-config.yaml}"

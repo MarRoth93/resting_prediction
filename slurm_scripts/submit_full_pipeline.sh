@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-PROJECT_DIR="${PROJECT_DIR:-/home/marco/Marco/resting_prediction}"
+PROJECT_DIR="${PROJECT_DIR:-/home/rothermm/resting_prediction}"
 SCRIPT_DIR="${PROJECT_DIR}/slurm_scripts"
 LOG_DIR="${PROJECT_DIR}/slurm_logs"
 
