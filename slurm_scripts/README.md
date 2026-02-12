@@ -14,6 +14,7 @@ These scripts follow your existing server pattern:
 - `03_extract_features_job.sh`: feature extraction (GPU job)
 - `04_train_shared_space_job.sh`: train shared-space model
 - `05_predict_and_ablate_job.sh`: zero-shot + few-shot + ablation run
+- `06_visualize_prediction_maps_job.sh`: render side-by-side GT vs zero-shot vs best few-shot maps
 - `submit_full_pipeline.sh`: submits the full dependency chain
 
 ## Default Paths
@@ -44,6 +45,7 @@ Common overrides:
 - `CONDA_ENV` (default: `resting-prediction`)
 - `DATA_ROOT`, `OUTPUT_ROOT`, `CONFIG_PATH`
 - `MODEL_DIR`, `PREDICTION_DIR`, `ABLATION_DIR`
+- `VIS_OUTPUT_DIR`, `TEST_SUBJECT`, `N_EXAMPLES`, `EXAMPLE_MODE`, `EXAMPLE_SEED`
 - `MODELS`, `DEVICE`, `BATCH_SIZE`
 
 ## Notes
