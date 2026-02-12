@@ -161,7 +161,8 @@ def harmonize_atlas_labels(
         logger.info(f"Subject {sub_id}: {len(valid)} labels with >= {min_voxels_per_parcel} voxels")
 
     # Intersection
-    common_labels = sorted(set.intersection(*per_subject_labels.values()))
+    # Normalize NumPy scalar labels to native Python ints so they are JSON-safe.
+    common_labels = [int(lbl) for lbl in sorted(set.intersection(*per_subject_labels.values()))]
     logger.info(f"Common labels across all subjects: {len(common_labels)}")
 
     # Fail-fast
@@ -172,7 +173,7 @@ def harmonize_atlas_labels(
         )
 
     # Remap to contiguous
-    label_remap = {old: new for new, old in enumerate(common_labels, start=1)}
+    label_remap = {int(old): int(new) for new, old in enumerate(common_labels, start=1)}
 
     # Apply remapping
     harmonized = {}

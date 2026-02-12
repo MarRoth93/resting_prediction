@@ -170,10 +170,11 @@ def train_pipeline(
 
     # Save atlas info
     if n_parcels:
+        serializable_label_remap = {int(old): int(new) for old, new in label_remap.items()}
         np.savez(
             os.path.join(output_dir, "atlas_info.npz"),
             common_labels=common_labels,
-            label_remap=json.dumps(label_remap),
+            label_remap=json.dumps(serializable_label_remap),
             n_parcels=n_parcels,
             atlas_type=atlas_type,
         )
