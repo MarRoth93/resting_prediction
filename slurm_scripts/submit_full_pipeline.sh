@@ -4,11 +4,18 @@ set -euo pipefail
 PROJECT_DIR="${PROJECT_DIR:-/home/rothermm/resting_prediction}"
 SCRIPT_DIR="${PROJECT_DIR}/slurm_scripts"
 LOG_DIR="${PROJECT_DIR}/slurm_logs"
+RUN_VISUALIZE="${RUN_VISUALIZE:-1}"
+RUN_BENCHMARK_VDVAE_VD="${RUN_BENCHMARK_VDVAE_VD:-1}"
+# SDXL reconstruction benchmark is disabled by default.
+RUN_BENCHMARK_SDXL="${RUN_BENCHMARK_SDXL:-0}"
 
 mkdir -p "${LOG_DIR}"
 
 echo "Submitting resting_prediction pipeline from ${PROJECT_DIR}"
 echo "Logs: ${LOG_DIR}"
+echo "RUN_VISUALIZE: ${RUN_VISUALIZE}"
+echo "RUN_BENCHMARK_VDVAE_VD: ${RUN_BENCHMARK_VDVAE_VD}"
+echo "RUN_BENCHMARK_SDXL: ${RUN_BENCHMARK_SDXL}"
 
 # 1) Preprocessing (parallel)
 task_job_id=$(sbatch --parsable "${SCRIPT_DIR}/01_prepare_task_data_array.sh")
@@ -30,5 +37,33 @@ eval_job_id=$(sbatch --parsable \
   --dependency="afterok:${train_job_id}" \
   "${SCRIPT_DIR}/05_predict_and_ablate_job.sh")
 echo "Submitted prediction/ablation job: ${eval_job_id} (depends on training)"
+
+# 4) Optional downstream steps after prediction/ablation
+if [[ "${RUN_VISUALIZE}" == "1" ]]; then
+  vis_job_id=$(sbatch --parsable \
+    --dependency="afterok:${eval_job_id}" \
+    "${SCRIPT_DIR}/06_visualize_prediction_maps_job.sh")
+  echo "Submitted visualization job: ${vis_job_id} (depends on prediction/ablation)"
+else
+  echo "Skipping visualization job (RUN_VISUALIZE=${RUN_VISUALIZE})"
+fi
+
+if [[ "${RUN_BENCHMARK_SDXL}" == "1" ]]; then
+  sdxl_job_id=$(sbatch --parsable \
+    --dependency="afterok:${eval_job_id}" \
+    "${SCRIPT_DIR}/07_benchmark_recon_job.sh")
+  echo "Submitted SDXL benchmark job: ${sdxl_job_id} (depends on prediction/ablation)"
+else
+  echo "Skipping SDXL benchmark job (RUN_BENCHMARK_SDXL=${RUN_BENCHMARK_SDXL})"
+fi
+
+if [[ "${RUN_BENCHMARK_VDVAE_VD}" == "1" ]]; then
+  vdvae_vd_job_id=$(sbatch --parsable \
+    --dependency="afterok:${eval_job_id}" \
+    "${SCRIPT_DIR}/08_benchmark_recon_vdvae_vd_job.sh")
+  echo "Submitted VDVAE+VD benchmark job: ${vdvae_vd_job_id} (depends on prediction/ablation)"
+else
+  echo "Skipping VDVAE+VD benchmark job (RUN_BENCHMARK_VDVAE_VD=${RUN_BENCHMARK_VDVAE_VD})"
+fi
 
 echo "Pipeline submission complete."

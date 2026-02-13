@@ -134,6 +134,109 @@ def _slice_eval_rows(
     return test_arr[eval_indices[valid_mask]], valid_mask
 
 
+def _find_split_stim_indices(
+    features_npz: np.lib.npyio.NpzFile,
+    split: str,
+    expected_rows: int,
+) -> tuple[np.ndarray | None, str | None]:
+    split_l = split.lower()
+    candidates: list[tuple[int, str, np.ndarray]] = []
+    for key in features_npz.files:
+        key_l = key.lower()
+        if split_l not in key_l:
+            continue
+        if not any(tok in key_l for tok in ("stim", "img", "index", "idx", "nsd")):
+            continue
+        arr = np.asarray(features_npz[key])
+        if arr.ndim != 1 or arr.shape[0] != expected_rows:
+            continue
+        try:
+            arr64 = arr.astype(np.int64, copy=False)
+        except (TypeError, ValueError):
+            continue
+        score = 0
+        if "stim" in key_l:
+            score += 4
+        if "idx" in key_l or "index" in key_l:
+            score += 3
+        if "nsd" in key_l:
+            score += 2
+        if "img" in key_l:
+            score += 1
+        candidates.append((score, key, arr64))
+
+    if not candidates:
+        return None, None
+
+    candidates.sort(key=lambda x: (x[0], -len(x[1]), x[1]), reverse=True)
+    _, best_key, best_arr = candidates[0]
+    return best_arr, best_key
+
+
+def _align_train_rows(
+    train_matrix: np.ndarray,
+    train_stim_idx: np.ndarray,
+    train_targets: np.ndarray,
+    label: str,
+    target_train_stim_idx: np.ndarray | None = None,
+) -> tuple[np.ndarray, np.ndarray, dict[str, int | str]]:
+    n_fmri = int(train_matrix.shape[0])
+    n_target = int(train_targets.shape[0])
+    if n_target == n_fmri:
+        return (
+            train_matrix,
+            train_targets,
+            {"mode": "identity", "rows_used": n_target, "rows_requested": n_target},
+        )
+
+    if target_train_stim_idx is not None:
+        if len(target_train_stim_idx) != n_target:
+            raise ValueError(
+                f"{label} train stim-index length mismatch: "
+                f"indices={len(target_train_stim_idx)}, targets={n_target}."
+            )
+        row_by_stim = {int(stim): idx for idx, stim in enumerate(train_stim_idx.tolist())}
+        mapped_rows = np.array(
+            [row_by_stim.get(int(stim), -1) for stim in target_train_stim_idx],
+            dtype=np.int64,
+        )
+        valid_mask = mapped_rows >= 0
+        n_valid = int(valid_mask.sum())
+        if n_valid == 0:
+            raise ValueError(
+                f"{label} train rows mismatch and no target stimuli were found in "
+                f"subject train_stim_idx (fmri_rows={n_fmri}, target_rows={n_target})."
+            )
+        if n_valid != n_target:
+            logger.warning(
+                "%s train alignment by stimulus dropped %d rows (%d/%d kept).",
+                label,
+                n_target - n_valid,
+                n_valid,
+                n_target,
+            )
+        return (
+            train_matrix[mapped_rows[valid_mask]],
+            train_targets[valid_mask],
+            {"mode": "stim_index", "rows_used": n_valid, "rows_requested": n_target},
+        )
+
+    n_common = min(n_fmri, n_target)
+    logger.warning(
+        "%s train rows mismatch (fmri=%d, target=%d). Falling back to first %d rows. "
+        "Provide train stimulus indices in the feature NPZ for exact alignment.",
+        label,
+        n_fmri,
+        n_target,
+        n_common,
+    )
+    return (
+        train_matrix[:n_common],
+        train_targets[:n_common],
+        {"mode": "prefix", "rows_used": n_common, "rows_requested": n_target},
+    )
+
+
 def _standardize_fmri(
     train_fmri: np.ndarray,
     cond_fmri: dict[str, np.ndarray],
@@ -501,8 +604,19 @@ def run_benchmark(
 ):
     subj_dir = data_root / f"subj{test_sub:02d}"
     train_fmri = np.load(subj_dir / "train_fmri.npy").astype(np.float32)
+    train_stim_idx = np.load(subj_dir / "train_stim_idx.npy").astype(np.int64)
     gt_test_fmri = np.load(subj_dir / "test_fmri.npy").astype(np.float32)
     test_stim_idx = np.load(subj_dir / "test_stim_idx.npy").astype(np.int64)
+    if train_stim_idx.shape[0] != train_fmri.shape[0]:
+        raise ValueError(
+            f"train_stim_idx rows mismatch: train_stim_idx={train_stim_idx.shape[0]}, "
+            f"train_fmri={train_fmri.shape[0]}"
+        )
+    if test_stim_idx.shape[0] != gt_test_fmri.shape[0]:
+        raise ValueError(
+            f"test_stim_idx rows mismatch: test_stim_idx={test_stim_idx.shape[0]}, "
+            f"test_fmri={gt_test_fmri.shape[0]}"
+        )
 
     zero_pred_path = predictions_dir / f"zeroshot_sub{test_sub}_pred.npy"
     zero_test_fmri = np.load(zero_pred_path).astype(np.float32)
@@ -542,42 +656,62 @@ def run_benchmark(
         "few_shot": few_eval,
     }
 
-    train_vdvae = np.load(vdvae_feature_npz)["train_latents"].astype(np.float32)
-    test_vdvae = np.load(vdvae_feature_npz)["test_latents"].astype(np.float32)
-    if train_vdvae.shape[0] != train_fmri.shape[0]:
-        raise ValueError(
-            f"VDVAE train rows mismatch: train_fmri={train_fmri.shape[0]}, "
-            f"train_latents={train_vdvae.shape[0]}"
-        )
+    vdvae_features = np.load(vdvae_feature_npz)
+    train_vdvae = vdvae_features["train_latents"].astype(np.float32)
+    test_vdvae = vdvae_features["test_latents"].astype(np.float32)
+    vdvae_train_stim_idx, vdvae_train_stim_key = _find_split_stim_indices(
+        vdvae_features,
+        split="train",
+        expected_rows=train_vdvae.shape[0],
+    )
+    if vdvae_train_stim_idx is not None and vdvae_train_stim_key is not None:
+        logger.info("Using VDVAE train stimulus indices from key '%s' for row alignment.", vdvae_train_stim_key)
     test_vdvae_eval, vdvae_eval_mask = _slice_eval_rows(test_vdvae, eval_indices, "VDVAE")
 
     train_cliptext = np.load(cliptext_train_npy).astype(np.float32)
     test_cliptext = np.load(cliptext_test_npy).astype(np.float32)
-    if train_cliptext.shape[0] != train_fmri.shape[0]:
-        raise ValueError(
-            f"CLIP-text train rows mismatch: train_fmri={train_fmri.shape[0]}, "
-            f"train_cliptext={train_cliptext.shape[0]}"
-        )
     test_cliptext_eval, cliptext_eval_mask = _slice_eval_rows(test_cliptext, eval_indices, "CLIP-text")
 
     train_clipvision = np.load(clipvision_train_npy).astype(np.float32)
     test_clipvision = np.load(clipvision_test_npy).astype(np.float32)
-    if train_clipvision.shape[0] != train_fmri.shape[0]:
-        raise ValueError(
-            f"CLIP-vision train rows mismatch: train_fmri={train_fmri.shape[0]}, "
-            f"train_clipvision={train_clipvision.shape[0]}"
-        )
     test_clipvision_eval, clipvision_eval_mask = _slice_eval_rows(
         test_clipvision, eval_indices, "CLIP-vision"
     )
 
-    x_train, x_cond = _standardize_fmri(train_fmri, cond_fmri, fmri_scale=fmri_scale)
+    x_train_all, x_cond = _standardize_fmri(train_fmri, cond_fmri, fmri_scale=fmri_scale)
+    cliptext_train_stim_idx = (
+        vdvae_train_stim_idx if vdvae_train_stim_idx is not None and len(vdvae_train_stim_idx) == train_cliptext.shape[0] else None
+    )
+    clipvision_train_stim_idx = (
+        vdvae_train_stim_idx if vdvae_train_stim_idx is not None and len(vdvae_train_stim_idx) == train_clipvision.shape[0] else None
+    )
+    x_train_vdvae, train_vdvae_aligned, vdvae_train_align = _align_train_rows(
+        train_matrix=x_train_all,
+        train_stim_idx=train_stim_idx,
+        train_targets=train_vdvae,
+        label="VDVAE",
+        target_train_stim_idx=vdvae_train_stim_idx,
+    )
+    x_train_cliptext, train_cliptext_aligned, cliptext_train_align = _align_train_rows(
+        train_matrix=x_train_all,
+        train_stim_idx=train_stim_idx,
+        train_targets=train_cliptext,
+        label="CLIP-text",
+        target_train_stim_idx=cliptext_train_stim_idx,
+    )
+    x_train_clipvision, train_clipvision_aligned, clipvision_train_align = _align_train_rows(
+        train_matrix=x_train_all,
+        train_stim_idx=train_stim_idx,
+        train_targets=train_clipvision,
+        label="CLIP-vision",
+        target_train_stim_idx=clipvision_train_stim_idx,
+    )
 
     logger.info("Regressing VDVAE latents (alpha=%s)", vdvae_alpha)
     pred_vdvae = _predict_vdvae_latents(
-        x_train=x_train,
+        x_train=x_train_vdvae,
         x_cond=x_cond,
-        train_latents=train_vdvae,
+        train_latents=train_vdvae_aligned,
         alpha=vdvae_alpha,
         max_iter=ridge_max_iter,
         chunk_size=vdvae_chunk_size,
@@ -585,9 +719,9 @@ def run_benchmark(
 
     logger.info("Regressing CLIP-text features (alpha=%s)", cliptext_alpha)
     pred_cliptext = _predict_clip_embeddings(
-        x_train=x_train,
+        x_train=x_train_cliptext,
         x_cond=x_cond,
-        train_clip=train_cliptext,
+        train_clip=train_cliptext_aligned,
         alpha=cliptext_alpha,
         max_iter=ridge_max_iter,
         label="CLIP-text",
@@ -595,9 +729,9 @@ def run_benchmark(
 
     logger.info("Regressing CLIP-vision features (alpha=%s)", clipvision_alpha)
     pred_clipvision = _predict_clip_embeddings(
-        x_train=x_train,
+        x_train=x_train_clipvision,
         x_cond=x_cond,
-        train_clip=train_clipvision,
+        train_clip=train_clipvision_aligned,
         alpha=clipvision_alpha,
         max_iter=ridge_max_iter,
         label="CLIP-vision",
@@ -631,6 +765,13 @@ def run_benchmark(
             "vdvae_eval_rows_used": int(vdvae_eval_mask.sum()),
             "cliptext_eval_rows_used": int(cliptext_eval_mask.sum()),
             "clipvision_eval_rows_used": int(clipvision_eval_mask.sum()),
+            "vdvae_train_rows_used": int(vdvae_train_align["rows_used"]),
+            "cliptext_train_rows_used": int(cliptext_train_align["rows_used"]),
+            "clipvision_train_rows_used": int(clipvision_train_align["rows_used"]),
+            "vdvae_train_alignment_mode": str(vdvae_train_align["mode"]),
+            "cliptext_train_alignment_mode": str(cliptext_train_align["mode"]),
+            "clipvision_train_alignment_mode": str(clipvision_train_align["mode"]),
+            "vdvae_train_stim_key": vdvae_train_stim_key or "",
         },
         "versatile_diffusion": {
             "weights": str(vd_weights_path),

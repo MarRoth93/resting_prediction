@@ -18,6 +18,8 @@ These scripts follow your existing server pattern:
 - `07_benchmark_recon_job.sh`: reconstruct GT/zero/few-shot conditions via SDXL-VAE latent pipeline
 - `08_benchmark_recon_vdvae_vd_job.sh`: reconstruct GT/zero/few-shot conditions via VDVAE + Versatile Diffusion pipeline
 - `submit_full_pipeline.sh`: submits the full dependency chain
+  - default chain includes `01 -> 05`, then `06` and `08`
+  - `07` (SDXL benchmark) is skipped by default; enable with `RUN_BENCHMARK_SDXL=1`
 
 ## Default Paths
 
