@@ -40,6 +40,8 @@ alignment:
   experiment_mode: "hybrid_cha"  # strict_rest_cha, hybrid_cha, mixed_connectivity
   atlas_type: "combined_rois"  # kastner, combined_rois, schaefer400
   atlas_harmonize: "intersection"
+  min_voxels_per_parcel: 10
+  min_labeled_fraction_warn: 0.5
   ensemble_method: "average"
   max_iters: 10
   tol: 1.0e-5
@@ -68,7 +70,11 @@ evaluation:
   noise_ceiling_method: "split_half"
   reliability_thresholds: [0.0, 0.1, 0.3]  # all, reliable, high-SNR
   nc_floor: 0.1  # floor for normalized performance ratio
+  fixed_eval_size: 250  # held-out rows fixed across N_shots and seeds
+  eval_split_seed: 42
   fewshot_shots: [0, 10, 25, 50, 100, 250, 500, 750]
+  run_feature_sweep: true
+  feature_backbones: ["clip", "dinov2", "clip_dinov2"]
   statistics:
     ci_level: 95.0
     n_bootstrap: 5000

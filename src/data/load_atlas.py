@@ -187,6 +187,125 @@ def harmonize_atlas_labels(
     return harmonized, common_labels, label_remap
 
 
+def atlas_utilization_summary(
+    atlas_masked: np.ndarray,
+    n_parcels: int,
+    sub_id: int | None = None,
+    min_voxels_per_parcel: int = 10,
+    min_labeled_fraction_warn: float = 0.5,
+) -> dict:
+    """
+    Summarize how well an atlas is utilized within a subject's nsdgeneral mask.
+
+    Args:
+        atlas_masked: 1D remapped labels (V_sub,), 0 means unlabeled.
+        n_parcels: expected number of parcels after harmonization.
+        sub_id: optional subject id for human-readable warnings.
+        min_voxels_per_parcel: parcel-size threshold used for "small" warnings.
+        min_labeled_fraction_warn: warn if labeled voxels / total masked voxels
+            falls below this threshold.
+
+    Returns:
+        dict with coverage, parcel-size stats, and warning strings.
+    """
+    if atlas_masked.ndim != 1:
+        raise ValueError(f"atlas_masked must be 1D, got shape {atlas_masked.shape}")
+    if n_parcels < 1:
+        raise ValueError(f"n_parcels must be >=1, got {n_parcels}")
+
+    counts = Counter(atlas_masked[atlas_masked > 0])
+    sizes = [int(counts.get(i, 0)) for i in range(1, n_parcels + 1)]
+    nonzero_sizes = [s for s in sizes if s > 0]
+
+    n_voxels = int(atlas_masked.shape[0])
+    n_labeled = int((atlas_masked > 0).sum())
+    labeled_fraction = float(n_labeled / n_voxels) if n_voxels > 0 else 0.0
+    n_present = int(sum(s > 0 for s in sizes))
+    empty = [i + 1 for i, s in enumerate(sizes) if s == 0]
+    small = [i + 1 for i, s in enumerate(sizes) if 0 < s < min_voxels_per_parcel]
+
+    subject_label = f"Subject {sub_id}" if sub_id is not None else "Subject"
+    warnings = []
+    if n_voxels == 0:
+        warnings.append(f"{subject_label}: atlas_masked has zero voxels.")
+    if n_labeled == 0:
+        warnings.append(f"{subject_label}: no voxels assigned to atlas parcels.")
+    if labeled_fraction < min_labeled_fraction_warn:
+        warnings.append(
+            f"{subject_label}: only {labeled_fraction:.3f} of nsdgeneral voxels have atlas labels."
+        )
+    if empty:
+        warnings.append(f"{subject_label}: {len(empty)} empty parcels: {empty}")
+    if small:
+        warnings.append(
+            f"{subject_label}: {len(small)} small parcels (<{min_voxels_per_parcel} voxels): {small}"
+        )
+
+    return {
+        "sub_id": int(sub_id) if sub_id is not None else None,
+        "n_voxels_masked": n_voxels,
+        "n_voxels_labeled": n_labeled,
+        "labeled_fraction": labeled_fraction,
+        "n_parcels_expected": int(n_parcels),
+        "n_parcels_present": n_present,
+        "min_voxels_per_parcel": int(min_voxels_per_parcel),
+        "min_voxels": int(min(nonzero_sizes)) if nonzero_sizes else 0,
+        "median_voxels": float(np.median(nonzero_sizes)) if nonzero_sizes else 0.0,
+        "mean_voxels": float(np.mean(nonzero_sizes)) if nonzero_sizes else 0.0,
+        "max_voxels": int(max(nonzero_sizes)) if nonzero_sizes else 0,
+        "empty_parcels": empty,
+        "small_parcels": small,
+        "warnings": warnings,
+    }
+
+
+def build_atlas_utilization_report(
+    atlas_masked_by_subject: dict[int, np.ndarray],
+    n_parcels: int,
+    min_voxels_per_parcel: int = 10,
+    min_labeled_fraction_warn: float = 0.5,
+) -> dict:
+    """
+    Build a cross-subject atlas utilization report for saved training artifacts.
+    """
+    if not atlas_masked_by_subject:
+        raise ValueError("atlas_masked_by_subject is empty.")
+
+    summaries = {}
+    labeled_fractions = []
+    parcels_present = []
+    subjects_with_warnings = []
+
+    for sub_id in sorted(atlas_masked_by_subject):
+        summary = atlas_utilization_summary(
+            atlas_masked=atlas_masked_by_subject[sub_id],
+            n_parcels=n_parcels,
+            sub_id=sub_id,
+            min_voxels_per_parcel=min_voxels_per_parcel,
+            min_labeled_fraction_warn=min_labeled_fraction_warn,
+        )
+        summaries[str(int(sub_id))] = summary
+        labeled_fractions.append(summary["labeled_fraction"])
+        parcels_present.append(summary["n_parcels_present"])
+        if summary["warnings"]:
+            subjects_with_warnings.append(int(sub_id))
+
+    return {
+        "n_subjects": len(summaries),
+        "n_parcels_expected": int(n_parcels),
+        "min_voxels_per_parcel": int(min_voxels_per_parcel),
+        "min_labeled_fraction_warn": float(min_labeled_fraction_warn),
+        "labeled_fraction_min": float(np.min(labeled_fractions)),
+        "labeled_fraction_median": float(np.median(labeled_fractions)),
+        "labeled_fraction_max": float(np.max(labeled_fractions)),
+        "parcels_present_min": int(np.min(parcels_present)),
+        "parcels_present_median": float(np.median(parcels_present)),
+        "parcels_present_max": int(np.max(parcels_present)),
+        "subjects_with_warnings": subjects_with_warnings,
+        "per_subject": summaries,
+    }
+
+
 def parcel_qc(
     atlas_masked: np.ndarray,
     n_parcels: int,

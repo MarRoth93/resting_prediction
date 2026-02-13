@@ -31,10 +31,10 @@ from sklearn.metrics import r2_score
 try:
     from .benchmark_reconstructions import (
         _collect_fewshot_runs,
-        _compute_eval_indices,
         _load_image_from_dir,
         _load_image_from_npy,
         _read_best_n_from_summary,
+        _resolve_eval_indices_for_run,
         _rowwise_corr,
         _save_panel,
         _select_fewshot_run,
@@ -42,10 +42,10 @@ try:
 except ImportError:
     from src.pipelines.benchmark_reconstructions import (
         _collect_fewshot_runs,
-        _compute_eval_indices,
         _load_image_from_dir,
         _load_image_from_npy,
         _read_best_n_from_summary,
+        _resolve_eval_indices_for_run,
         _rowwise_corr,
         _save_panel,
         _select_fewshot_run,
@@ -634,7 +634,7 @@ def run_benchmark(
         force_seed=fewshot_seed,
     )
     few_pred = np.load(few_run.pred_path).astype(np.float32)
-    eval_indices = _compute_eval_indices(len(gt_test_fmri), few_run.n_shots, few_run.seed)
+    eval_indices = _resolve_eval_indices_for_run(len(gt_test_fmri), few_run)
     if few_pred.shape[0] != len(eval_indices):
         raise ValueError(
             f"Few-shot rows mismatch: pred={few_pred.shape[0]}, expected={len(eval_indices)} "

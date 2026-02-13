@@ -168,6 +168,29 @@ def _compute_eval_indices(n_shared: int, n_shots: int, seed: int) -> np.ndarray:
     return np.setdiff1d(np.arange(n_shared), shot_indices)
 
 
+def _resolve_eval_indices_for_run(n_shared: int, run: FewShotRun) -> np.ndarray:
+    """Use persisted eval indices from run metrics when available."""
+    try:
+        with open(run.metrics_path) as f:
+            metrics = json.load(f)
+    except Exception:
+        metrics = {}
+
+    eval_from_metrics = metrics.get("eval_indices")
+    if isinstance(eval_from_metrics, list) and len(eval_from_metrics) > 0:
+        eval_indices = np.array(eval_from_metrics, dtype=np.int64)
+        if np.any(eval_indices < 0) or np.any(eval_indices >= n_shared):
+            raise ValueError(
+                f"Eval indices out of range for n_shared={n_shared}: "
+                f"min={int(eval_indices.min())}, max={int(eval_indices.max())}."
+            )
+        if np.unique(eval_indices).size != eval_indices.size:
+            raise ValueError("Eval indices contain duplicates.")
+        return np.sort(eval_indices)
+
+    return _compute_eval_indices(n_shared, run.n_shots, run.seed)
+
+
 def _vector_to_volume(values: np.ndarray, mask: np.ndarray) -> np.ndarray:
     vol = np.zeros(mask.shape, dtype=np.float32)
     vol[mask] = values
@@ -332,10 +355,9 @@ def generate_images(
             f"Zero-shot shape mismatch: pred={zero_pred.shape}, truth={test_fmri.shape}"
         )
 
-    eval_indices = _compute_eval_indices(
+    eval_indices = _resolve_eval_indices_for_run(
         n_shared=test_fmri.shape[0],
-        n_shots=fewshot_run.n_shots,
-        seed=fewshot_run.seed,
+        run=fewshot_run,
     )
     if few_pred.shape[0] != len(eval_indices):
         raise ValueError(

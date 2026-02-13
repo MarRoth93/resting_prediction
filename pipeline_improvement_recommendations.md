@@ -25,6 +25,12 @@ This roadmap prioritizes measurable gains in activation prediction and reconstru
 - Standardize seed handling across prediction, ablation, and reconstruction.
 - Report mean and confidence interval across seeds for zero-shot and few-shot.
 
+5. Add atlas-utilization guardrails (within `nsdgeneral` mask).
+- Save `atlas_utilization_report.json` during shared-space training with per-subject:
+  labeled voxel fraction, parcel-count utilization, and parcel-size statistics.
+- Fail fast on atlas/mask/task/REST voxel-count mismatches before model fitting.
+- Include atlas coverage stats in prediction metrics (e.g., labeled fraction and parcels present).
+
 ## Phase B: Activation Prediction Improvements (Highest Performance Leverage)
 1. Reliability-weighted regression.
 - Weight voxels/parcels by split-half reliability or noise ceiling.
@@ -75,3 +81,4 @@ This roadmap prioritizes measurable gains in activation prediction and reconstru
 2. Few-shot and zero-shot comparisons use identical held-out rows.
 3. At least one model update improves median `r` and ceiling-normalized `r` over current baseline.
 4. Improvements are consistent across multiple seeds, not a single split artifact.
+5. Atlas utilization is reported for all subjects and no shape-mismatch guardrail is triggered.

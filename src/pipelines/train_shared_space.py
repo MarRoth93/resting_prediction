@@ -14,7 +14,7 @@ import yaml
 
 from src.alignment.shared_space import SharedSpaceBuilder
 from src.data.load_atlas import (
-    get_atlas_within_mask,
+    build_atlas_utilization_report,
     harmonize_atlas_labels,
     load_atlas,
     parcel_qc,
@@ -35,6 +35,61 @@ def set_seeds(seed: int = 42):
         torch.cuda.manual_seed_all(seed)
     except ImportError:
         pass
+
+
+def _validate_subject_row_contract(subject: NSDSubjectData) -> None:
+    """Fail fast on mismatched rows/voxels within one processed subject."""
+    train_rows = int(subject.train_fmri.shape[0])
+    test_rows = int(subject.test_fmri.shape[0])
+    if train_rows != int(subject.train_stim_idx.shape[0]):
+        raise ValueError(
+            f"Subject {subject.sub}: train row mismatch train_fmri={train_rows}, "
+            f"train_stim_idx={int(subject.train_stim_idx.shape[0])}."
+        )
+    if test_rows != int(subject.test_stim_idx.shape[0]):
+        raise ValueError(
+            f"Subject {subject.sub}: test row mismatch test_fmri={test_rows}, "
+            f"test_stim_idx={int(subject.test_stim_idx.shape[0])}."
+        )
+
+    task_voxels = int(subject.test_fmri.shape[1])
+    if int(subject.train_fmri.shape[1]) != task_voxels:
+        raise ValueError(
+            f"Subject {subject.sub}: train/test voxel mismatch train_fmri="
+            f"{int(subject.train_fmri.shape[1])}, test_fmri={task_voxels}."
+        )
+    if subject.rest_runs:
+        rest_voxels = {int(run.shape[1]) for run in subject.rest_runs}
+        if len(rest_voxels) != 1 or next(iter(rest_voxels)) != task_voxels:
+            raise ValueError(
+                f"Subject {subject.sub}: REST voxel dimensions {sorted(rest_voxels)} "
+                f"do not match task voxels {task_voxels}."
+            )
+
+
+def _validate_feature_contract(
+    subject: NSDSubjectData,
+    features: NSDFeatures,
+    feature_type: str,
+) -> None:
+    """Ensure subject stimulus indices are valid for chosen feature backbone."""
+    all_idx = np.concatenate([subject.train_stim_idx, subject.test_stim_idx]).astype(np.int64)
+    if all_idx.size == 0:
+        raise ValueError(f"Subject {subject.sub}: empty stimulus index arrays.")
+    if np.any(all_idx < 0):
+        raise ValueError(f"Subject {subject.sub}: negative stimulus indices detected.")
+
+    max_idx = int(all_idx.max())
+    try:
+        probe = features.get_features(np.array([max_idx], dtype=np.int64), feature_type)
+    except Exception as exc:
+        raise ValueError(
+            f"Subject {subject.sub}: stimulus index {max_idx} is invalid for feature_type={feature_type}."
+        ) from exc
+    if int(probe.shape[0]) != 1:
+        raise ValueError(
+            f"Subject {subject.sub}: feature probe returned unexpected shape {probe.shape}."
+        )
 
 
 def train_pipeline(
@@ -65,6 +120,8 @@ def train_pipeline(
     connectivity_mode = config["alignment"]["connectivity_mode"]
     experiment_mode = config["alignment"]["experiment_mode"]
     atlas_type = config["alignment"]["atlas_type"]
+    min_voxels_per_parcel = int(config["alignment"].get("min_voxels_per_parcel", 10))
+    min_labeled_fraction_warn = float(config["alignment"].get("min_labeled_fraction_warn", 0.5))
     ridge_alpha = config["encoding"]["ridge_alpha"]
     feature_type = config["features"]["type"]
 
@@ -74,10 +131,14 @@ def train_pipeline(
     # Step 1: Load data
     subjects = {s: NSDSubjectData(s, data_root) for s in train_subs}
     features = NSDFeatures(os.path.join(data_root, "features"))
+    for s in train_subs:
+        _validate_subject_row_contract(subjects[s])
+        _validate_feature_contract(subjects[s], features, feature_type)
 
     # Step 2: Load and harmonize atlas (if parcellation mode)
     atlas_masked = None
     n_parcels = None
+    atlas_utilization_report = None
 
     if connectivity_mode == "parcellation":
         # Load atlas for all subjects (including test subject for harmonization)
@@ -93,7 +154,10 @@ def train_pipeline(
                 masks[s] = np.load(os.path.join(data_root, f"subj{s:02d}/mask.npy"))
 
         harmonized, common_labels, label_remap = harmonize_atlas_labels(
-            atlas_maps, masks, min_k=min_k
+            atlas_maps,
+            masks,
+            min_k=min_k,
+            min_voxels_per_parcel=min_voxels_per_parcel,
         )
         n_parcels = len(common_labels)
         logger.info(f"Atlas harmonized: {n_parcels} common parcels")
@@ -102,9 +166,53 @@ def train_pipeline(
         atlas_masked = {}
         for s in all_subs:
             atlas_masked[s] = harmonized[s]
-            qc = parcel_qc(harmonized[s], n_parcels, s)
+            expected_v = int(masks[s].sum())
+            if int(harmonized[s].shape[0]) != expected_v:
+                raise ValueError(
+                    f"Subject {s}: harmonized atlas length {harmonized[s].shape[0]} "
+                    f"does not match nsdgeneral mask voxels {expected_v}."
+                )
+            if s in subjects:
+                subj_v = int(subjects[s].test_fmri.shape[1])
+                if int(harmonized[s].shape[0]) != subj_v:
+                    raise ValueError(
+                        f"Subject {s}: harmonized atlas length {harmonized[s].shape[0]} "
+                        f"does not match task data voxels {subj_v}."
+                    )
+                if subjects[s].rest_runs:
+                    rest_v = int(subjects[s].rest_runs[0].shape[1])
+                    if int(harmonized[s].shape[0]) != rest_v:
+                        raise ValueError(
+                            f"Subject {s}: harmonized atlas length {harmonized[s].shape[0]} "
+                            f"does not match REST data voxels {rest_v}."
+                        )
+
+            qc = parcel_qc(
+                harmonized[s],
+                n_parcels,
+                s,
+                min_voxels_per_parcel=min_voxels_per_parcel,
+            )
             for w in qc["warnings"]:
                 logger.warning(w)
+
+        atlas_utilization_report = build_atlas_utilization_report(
+            atlas_masked,
+            n_parcels=n_parcels,
+            min_voxels_per_parcel=min_voxels_per_parcel,
+            min_labeled_fraction_warn=min_labeled_fraction_warn,
+        )
+        logger.info(
+            "Atlas utilization: labeled fraction min/median/max = %.3f / %.3f / %.3f",
+            atlas_utilization_report["labeled_fraction_min"],
+            atlas_utilization_report["labeled_fraction_median"],
+            atlas_utilization_report["labeled_fraction_max"],
+        )
+        if atlas_utilization_report["subjects_with_warnings"]:
+            logger.warning(
+                "Atlas utilization warnings for subjects: %s",
+                atlas_utilization_report["subjects_with_warnings"],
+            )
 
     # Step 3: Build shared space
     rest_runs = {s: subjects[s].rest_runs for s in train_subs}
@@ -181,6 +289,10 @@ def train_pipeline(
         # Save per-subject atlas for inference
         for s in atlas_masked:
             np.save(os.path.join(output_dir, f"atlas_masked_{s}.npy"), atlas_masked[s])
+        if atlas_utilization_report is not None:
+            atlas_utilization_report["atlas_type"] = atlas_type
+            with open(os.path.join(output_dir, "atlas_utilization_report.json"), "w") as f:
+                json.dump(atlas_utilization_report, f, indent=2)
 
     # Save provenance metadata
     metadata = {

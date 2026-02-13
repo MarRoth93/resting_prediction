@@ -151,6 +151,31 @@ def _compute_eval_indices(n_shared: int, n_shots: int, seed: int) -> np.ndarray:
     return np.setdiff1d(np.arange(n_shared), shot_indices)
 
 
+def _resolve_eval_indices_for_run(n_shared: int, run: FewShotRun) -> np.ndarray:
+    """
+    Resolve eval indices from run metrics (preferred), fallback to legacy split.
+    """
+    try:
+        with open(run.metrics_path) as f:
+            metrics = json.load(f)
+    except Exception:
+        metrics = {}
+
+    eval_from_metrics = metrics.get("eval_indices")
+    if isinstance(eval_from_metrics, list) and len(eval_from_metrics) > 0:
+        eval_indices = np.array(eval_from_metrics, dtype=np.int64)
+        if np.any(eval_indices < 0) or np.any(eval_indices >= n_shared):
+            raise ValueError(
+                f"Few-shot metrics eval_indices out of range for n_shared={n_shared}: "
+                f"min={int(eval_indices.min())}, max={int(eval_indices.max())}."
+            )
+        if np.unique(eval_indices).size != eval_indices.size:
+            raise ValueError("Few-shot metrics eval_indices contain duplicates.")
+        return np.sort(eval_indices)
+
+    return _compute_eval_indices(n_shared, run.n_shots, run.seed)
+
+
 def _rowwise_corr(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     a_c = a - a.mean(axis=1, keepdims=True)
     b_c = b - b.mean(axis=1, keepdims=True)
@@ -295,7 +320,18 @@ def run_benchmark(
     subj_dir = data_root / f"subj{test_sub:02d}"
     train_fmri = np.load(subj_dir / "train_fmri.npy").astype(np.float32)
     gt_test_fmri = np.load(subj_dir / "test_fmri.npy").astype(np.float32)
+    train_stim_idx = np.load(subj_dir / "train_stim_idx.npy").astype(np.int64)
     test_stim_idx = np.load(subj_dir / "test_stim_idx.npy").astype(np.int64)
+    if train_stim_idx.shape[0] != train_fmri.shape[0]:
+        raise ValueError(
+            f"train_stim_idx rows mismatch: train_stim_idx={train_stim_idx.shape[0]}, "
+            f"train_fmri={train_fmri.shape[0]}"
+        )
+    if test_stim_idx.shape[0] != gt_test_fmri.shape[0]:
+        raise ValueError(
+            f"test_stim_idx rows mismatch: test_stim_idx={test_stim_idx.shape[0]}, "
+            f"test_fmri={gt_test_fmri.shape[0]}"
+        )
 
     zero_pred_path = predictions_dir / f"zeroshot_sub{test_sub}_pred.npy"
     zero_test_fmri = np.load(zero_pred_path).astype(np.float32)
@@ -313,7 +349,7 @@ def run_benchmark(
         force_seed=fewshot_seed,
     )
     few_pred = np.load(few_run.pred_path).astype(np.float32)
-    eval_indices = _compute_eval_indices(len(gt_test_fmri), few_run.n_shots, few_run.seed)
+    eval_indices = _resolve_eval_indices_for_run(len(gt_test_fmri), few_run)
     if few_pred.shape[0] != len(eval_indices):
         raise ValueError(
             f"Few-shot rows mismatch: pred={few_pred.shape[0]}, expected={len(eval_indices)} "
@@ -333,6 +369,16 @@ def run_benchmark(
     features = np.load(sdxl_feature_npz)
     train_latents = features["train_latents"].astype(np.float32)
     test_latents = features["test_latents"].astype(np.float32)
+    if train_latents.shape[0] != train_fmri.shape[0]:
+        raise ValueError(
+            f"SDXL train rows mismatch: train_fmri={train_fmri.shape[0]}, "
+            f"train_latents={train_latents.shape[0]}"
+        )
+    if test_latents.shape[0] != gt_test_fmri.shape[0]:
+        raise ValueError(
+            f"SDXL test rows mismatch: test_fmri={gt_test_fmri.shape[0]}, "
+            f"test_latents={test_latents.shape[0]}"
+        )
     test_latents_eval = test_latents[eval_indices]
 
     fmri_scaler = StandardScaler()
