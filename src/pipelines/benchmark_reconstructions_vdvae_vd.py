@@ -107,6 +107,33 @@ def _safe_std(x: np.ndarray, axis: int, ddof: int = 0) -> np.ndarray:
     return s
 
 
+def _slice_eval_rows(
+    test_arr: np.ndarray,
+    eval_indices: np.ndarray,
+    label: str,
+) -> tuple[np.ndarray, np.ndarray]:
+    valid_mask = (eval_indices >= 0) & (eval_indices < test_arr.shape[0])
+    n_valid = int(valid_mask.sum())
+    n_total = int(len(eval_indices))
+    if n_valid == 0:
+        raise ValueError(
+            f"{label} test rows are incompatible with eval split: "
+            f"rows={test_arr.shape[0]}, eval_max={int(eval_indices.max(initial=-1))}."
+        )
+    if n_valid != n_total:
+        logger.warning(
+            "%s test rows shorter than eval split; using %d/%d rows for %s metrics "
+            "(max eval idx=%d, rows=%d).",
+            label,
+            n_valid,
+            n_total,
+            label,
+            int(eval_indices.max(initial=-1)),
+            int(test_arr.shape[0]),
+        )
+    return test_arr[eval_indices[valid_mask]], valid_mask
+
+
 def _standardize_fmri(
     train_fmri: np.ndarray,
     cond_fmri: dict[str, np.ndarray],
@@ -517,15 +544,32 @@ def run_benchmark(
 
     train_vdvae = np.load(vdvae_feature_npz)["train_latents"].astype(np.float32)
     test_vdvae = np.load(vdvae_feature_npz)["test_latents"].astype(np.float32)
-    test_vdvae_eval = test_vdvae[eval_indices]
+    if train_vdvae.shape[0] != train_fmri.shape[0]:
+        raise ValueError(
+            f"VDVAE train rows mismatch: train_fmri={train_fmri.shape[0]}, "
+            f"train_latents={train_vdvae.shape[0]}"
+        )
+    test_vdvae_eval, vdvae_eval_mask = _slice_eval_rows(test_vdvae, eval_indices, "VDVAE")
 
     train_cliptext = np.load(cliptext_train_npy).astype(np.float32)
     test_cliptext = np.load(cliptext_test_npy).astype(np.float32)
-    test_cliptext_eval = test_cliptext[eval_indices]
+    if train_cliptext.shape[0] != train_fmri.shape[0]:
+        raise ValueError(
+            f"CLIP-text train rows mismatch: train_fmri={train_fmri.shape[0]}, "
+            f"train_cliptext={train_cliptext.shape[0]}"
+        )
+    test_cliptext_eval, cliptext_eval_mask = _slice_eval_rows(test_cliptext, eval_indices, "CLIP-text")
 
     train_clipvision = np.load(clipvision_train_npy).astype(np.float32)
     test_clipvision = np.load(clipvision_test_npy).astype(np.float32)
-    test_clipvision_eval = test_clipvision[eval_indices]
+    if train_clipvision.shape[0] != train_fmri.shape[0]:
+        raise ValueError(
+            f"CLIP-vision train rows mismatch: train_fmri={train_fmri.shape[0]}, "
+            f"train_clipvision={train_clipvision.shape[0]}"
+        )
+    test_clipvision_eval, clipvision_eval_mask = _slice_eval_rows(
+        test_clipvision, eval_indices, "CLIP-vision"
+    )
 
     x_train, x_cond = _standardize_fmri(train_fmri, cond_fmri, fmri_scale=fmri_scale)
 
@@ -584,6 +628,9 @@ def run_benchmark(
             "clipvision_alpha": clipvision_alpha,
             "ridge_max_iter": ridge_max_iter,
             "vdvae_chunk_size": vdvae_chunk_size,
+            "vdvae_eval_rows_used": int(vdvae_eval_mask.sum()),
+            "cliptext_eval_rows_used": int(cliptext_eval_mask.sum()),
+            "clipvision_eval_rows_used": int(clipvision_eval_mask.sum()),
         },
         "versatile_diffusion": {
             "weights": str(vd_weights_path),
@@ -600,22 +647,25 @@ def run_benchmark(
         np.save(pred_feature_dir / f"{name}_vdvae.npy", pred_vdvae[name])
         np.save(pred_feature_dir / f"{name}_cliptext.npy", pred_cliptext[name])
         np.save(pred_feature_dir / f"{name}_clipvision.npy", pred_clipvision[name])
+        pred_vdvae_eval = pred_vdvae[name][vdvae_eval_mask]
+        pred_cliptext_eval = pred_cliptext[name][cliptext_eval_mask]
+        pred_clipvision_eval = pred_clipvision[name][clipvision_eval_mask]
 
         summary["conditions"][name] = {
             "vdvae_latent_r2_vs_true_eval": float(
-                r2_score(test_vdvae_eval, pred_vdvae[name], multioutput="uniform_average")
+                r2_score(test_vdvae_eval, pred_vdvae_eval, multioutput="uniform_average")
             ),
             "cliptext_r2_vs_true_eval": float(
                 r2_score(
                     test_cliptext_eval.reshape(len(test_cliptext_eval), -1),
-                    pred_cliptext[name].reshape(len(pred_cliptext[name]), -1),
+                    pred_cliptext_eval.reshape(len(pred_cliptext_eval), -1),
                     multioutput="uniform_average",
                 )
             ),
             "clipvision_r2_vs_true_eval": float(
                 r2_score(
                     test_clipvision_eval.reshape(len(test_clipvision_eval), -1),
-                    pred_clipvision[name].reshape(len(pred_clipvision[name]), -1),
+                    pred_clipvision_eval.reshape(len(pred_clipvision_eval), -1),
                     multioutput="uniform_average",
                 )
             ),
