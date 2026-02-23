@@ -1,0 +1,42 @@
+# Python bytecode and cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Virtual environments
+.venv/
+venv/
+
+# Local logs
+slurm_logs/
+slurm-*.out
+*.log
+
+# NSD data
+nsddata/
+nsddata_betas/
+nsddata_stimuli/
+nsddata_timeseries/
+
+# Derived data
+processed_data/
+outputs/
+
+# Test/coverage artifacts
+.coverage
+htmlcov/
+
+# Build/package artifacts
+build/
+dist/
+*.egg-info/
+
+# Local tooling state
+.codex-manager/
+.gemini-manager/

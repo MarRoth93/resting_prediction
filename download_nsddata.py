@@ -27,7 +27,7 @@ import sys
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-SUBJECTS = [1, 2, 5, 7]
+SUBJECTS = [1, 2, 3, 4, 5, 6, 7]
 S3_BASE = "s3://natural-scenes-dataset"
 AWS_SIGNED_REQUEST = False
 

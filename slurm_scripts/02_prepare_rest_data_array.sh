@@ -5,7 +5,7 @@
 #SBATCH --mem=128G
 #SBATCH --time=10:00:00
 #SBATCH --partition=normal
-#SBATCH --array=0-3
+#SBATCH --array=0-6
 #SBATCH --output=/home/rothermm/resting_prediction/slurm_logs/%x_sub%a_%j.out
 #SBATCH --error=/home/rothermm/resting_prediction/slurm_logs/%x_sub%a_%j.err
 #SBATCH --chdir=/home/rothermm/resting_prediction
@@ -19,7 +19,7 @@ DATA_ROOT="${DATA_ROOT:-.}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-processed_data}"
 CONFIG_PATH="${CONFIG_PATH:-config.yaml}"
 
-subjects=(1 2 5 7)
+subjects=(1 2 3 4 5 6 7)
 SUBJECT_ID="${subjects[${SLURM_ARRAY_TASK_ID}]}"
 
 mkdir -p "${LOG_DIR}"

@@ -192,7 +192,7 @@ if __name__ == "__main__":
 
     logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser(description="Prepare task data for one subject")
-    parser.add_argument("-sub", "--sub", type=int, required=True, choices=[1, 2, 5, 7])
+    parser.add_argument("-sub", "--sub", type=int, required=True, choices=[1, 2, 3, 4, 5, 6, 7])
     parser.add_argument("--data-root", default=".")
     parser.add_argument("--output-root", default="processed_data")
     args = parser.parse_args()

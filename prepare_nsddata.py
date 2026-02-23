@@ -10,7 +10,7 @@ parser = argparse.ArgumentParser(description='Argument Parser')
 parser.add_argument("-sub", "--sub",help="Subject Number",default=1)
 args = parser.parse_args()
 sub=int(args.sub)
-assert sub in [1,2,5,7]
+assert sub in [1,2,3,4,5,6,7]
 
 def loadmat(filename):
     '''

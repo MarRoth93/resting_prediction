@@ -55,6 +55,7 @@ VD_GUIDANCE_SCALE="${VD_GUIDANCE_SCALE:-20.0}"
 VD_DDIM_STEPS="${VD_DDIM_STEPS:-50}"
 VD_DDIM_ETA="${VD_DDIM_ETA:-0.0}"
 N_PANELS="${N_PANELS:-20}"
+REUSE_PREDICTED_FEATURES="${REUSE_PREDICTED_FEATURES:-1}"
 
 mkdir -p "${LOG_DIR}"
 
@@ -81,6 +82,7 @@ echo "FEWSHOT_N_SHOTS: ${FEWSHOT_N_SHOTS:-<auto>}"
 echo "FEWSHOT_SEED: ${FEWSHOT_SEED:-<auto>}"
 echo "DEVICE: ${DEVICE}"
 echo "PRECISION: ${PRECISION}"
+echo "REUSE_PREDICTED_FEATURES: ${REUSE_PREDICTED_FEATURES}"
 
 module purge
 module load miniconda
@@ -138,6 +140,10 @@ fi
 
 if [[ -n "${FEWSHOT_SEED}" ]]; then
   cmd+=(--fewshot-seed "${FEWSHOT_SEED}")
+fi
+
+if [[ "${REUSE_PREDICTED_FEATURES}" == "1" ]]; then
+  cmd+=(--reuse-predicted-features)
 fi
 
 "${cmd[@]}" \

@@ -9,8 +9,8 @@ These scripts follow your existing server pattern:
 ## Scripts
 
 - `00_download_nsddata_job.sh` (optional): download NSD data
-- `01_prepare_task_data_array.sh`: task-data preprocessing for subjects `[1,2,5,7]` (array job)
-- `02_prepare_rest_data_array.sh`: REST preprocessing for subjects `[1,2,5,7]` (array job)
+- `01_prepare_task_data_array.sh`: task-data preprocessing for subjects `[1,2,3,4,5,6,7]` (array job)
+- `02_prepare_rest_data_array.sh`: REST preprocessing for subjects `[1,2,3,4,5,6,7]` (array job)
 - `03_extract_features_job.sh`: feature extraction (GPU job)
 - `04_train_shared_space_job.sh`: train shared-space model
 - `05_predict_and_ablate_job.sh`: zero-shot + few-shot + ablation run

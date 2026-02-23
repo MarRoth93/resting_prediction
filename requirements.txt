@@ -13,6 +13,7 @@ torch>=2.0
 torchvision>=0.15
 open-clip-torch>=2.20
 transformers>=4.30
+easydict>=1.13
 
 # Optional
 nilearn>=0.10

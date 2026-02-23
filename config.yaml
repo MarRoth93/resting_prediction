@@ -2,7 +2,7 @@
 
 # Data
 subjects:
-  train: [1, 2, 5]
+  train: [1, 2, 3, 4, 5, 6]
   test: [7]
 data_root: "."
 output_root: "outputs"
