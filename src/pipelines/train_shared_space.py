@@ -92,6 +92,60 @@ def _validate_feature_contract(
         )
 
 
+def _build_shared_stimulus_intersection(
+    subjects: dict[int, NSDSubjectData],
+    train_subs: list[int],
+) -> tuple[np.ndarray, dict[int, np.ndarray], dict[int, int]]:
+    """
+    Build canonical shared stimulus rows via intersection of test_stim_idx.
+
+    Returns:
+        shared_stim_idx: sorted NSD stimulus IDs used for hybrid alignment rows.
+        shared_rows: sub_id -> row indices into subject.test_fmri aligned to shared_stim_idx.
+        dropped_counts: sub_id -> number of subject test stimuli excluded by intersection.
+    """
+    if not train_subs:
+        raise ValueError("No training subjects provided.")
+
+    per_subject_sets: dict[int, set[int]] = {}
+    for s in train_subs:
+        stim_idx = np.asarray(subjects[s].test_stim_idx, dtype=np.int64).ravel()
+        if stim_idx.size == 0:
+            raise ValueError(f"Subject {s}: empty test_stim_idx.")
+        unique_idx = np.unique(stim_idx)
+        if unique_idx.size != stim_idx.size:
+            raise ValueError(f"Subject {s}: duplicate entries found in test_stim_idx.")
+        if not np.array_equal(unique_idx, stim_idx):
+            raise ValueError(
+                f"Subject {s}: test_stim_idx must be sorted ascending for deterministic alignment."
+            )
+        per_subject_sets[s] = set(stim_idx.tolist())
+
+    shared_set = set.intersection(*(per_subject_sets[s] for s in train_subs))
+    if not shared_set:
+        raise ValueError(
+            "No overlapping test stimuli found across training subjects; cannot build hybrid shared space."
+        )
+    shared_stim_idx = np.array(sorted(shared_set), dtype=np.int64)
+
+    shared_rows: dict[int, np.ndarray] = {}
+    dropped_counts: dict[int, int] = {}
+    for s in train_subs:
+        subj_idx = np.asarray(subjects[s].test_stim_idx, dtype=np.int64).ravel()
+        rows = np.searchsorted(subj_idx, shared_stim_idx)
+        valid = (rows < subj_idx.size) & (subj_idx[rows] == shared_stim_idx)
+        if not np.all(valid):
+            missing = shared_stim_idx[~valid][:10].tolist()
+            raise ValueError(
+                f"Subject {s}: failed to map shared stimuli into test_stim_idx. "
+                f"Example missing IDs: {missing}"
+            )
+        shared_rows[s] = rows.astype(np.int64, copy=False)
+        dropped_counts[s] = int(subj_idx.size - shared_stim_idx.size)
+
+    return shared_stim_idx, shared_rows, dropped_counts
+
+
 def train_pipeline(
     config_path: str = "config.yaml",
     data_root: str = "processed_data",
@@ -218,19 +272,30 @@ def train_pipeline(
     rest_runs = {s: subjects[s].rest_runs for s in train_subs}
     task_responses_shared = {}
 
-    # Validate shared-stimulus row correspondence across training subjects
-    ref_stim_idx = subjects[train_subs[0]].test_stim_idx
-    for s in train_subs[1:]:
-        if not np.array_equal(subjects[s].test_stim_idx, ref_stim_idx):
-            raise ValueError(
-                f"Shared stimulus ordering mismatch between subject {train_subs[0]} "
-                f"and subject {s}. test_stim_idx must be identical across all training "
-                f"subjects for Procrustes alignment row correspondence. "
-                f"Sub {train_subs[0]}: {len(ref_stim_idx)} stimuli, Sub {s}: {len(subjects[s].test_stim_idx)} stimuli."
-            )
+    shared_stim_idx, shared_test_rows, dropped_test_counts = _build_shared_stimulus_intersection(
+        subjects=subjects,
+        train_subs=train_subs,
+    )
+    logger.info(
+        "Shared-stimulus intersection size for hybrid alignment: %d",
+        int(shared_stim_idx.shape[0]),
+    )
 
     for s in train_subs:
-        task_responses_shared[s] = np.array(subjects[s].test_fmri, dtype=np.float32)
+        n_total = int(subjects[s].test_stim_idx.shape[0])
+        n_shared = int(shared_test_rows[s].shape[0])
+        if dropped_test_counts[s] > 0:
+            logger.info(
+                "Subject %d: using %d/%d test stimuli for shared alignment (dropped %d).",
+                s,
+                n_shared,
+                n_total,
+                dropped_test_counts[s],
+            )
+        task_responses_shared[s] = np.array(
+            subjects[s].test_fmri[shared_test_rows[s]],
+            dtype=np.float32,
+        )
 
     train_atlas = {s: atlas_masked[s] for s in train_subs} if atlas_masked else None
 
@@ -275,6 +340,7 @@ def train_pipeline(
     os.makedirs(output_dir, exist_ok=True)
     builder.save(output_dir)
     encoder.save(os.path.join(output_dir, "encoder.npz"))
+    np.save(os.path.join(output_dir, "shared_stim_idx.npy"), shared_stim_idx)
 
     # Save atlas info
     if n_parcels:
@@ -303,6 +369,11 @@ def train_pipeline(
         "n_parcels": n_parcels,
         "n_train_samples": X_concat.shape[0],
         "experiment_mode": experiment_mode,
+        "shared_stimulus_strategy": "intersection",
+        "n_shared_stimuli": int(shared_stim_idx.shape[0]),
+        "per_subject_dropped_test_stimuli": {
+            str(s): int(dropped_test_counts[s]) for s in train_subs
+        },
     }
     with open(os.path.join(output_dir, "metadata.json"), "w") as f:
         json.dump(metadata, f, indent=2)

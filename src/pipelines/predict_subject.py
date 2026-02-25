@@ -20,7 +20,6 @@ from src.evaluation.metrics import (
 from src.models.encoding import SharedSpaceEncoder, fine_tune_encoder
 from src.pipelines.eval_split import (
     load_or_create_fixed_eval_split,
-    sample_shot_indices_from_fixed_eval,
 )
 
 logger = logging.getLogger(__name__)
@@ -201,6 +200,93 @@ def _load_parcellation_artifacts(
     return atlas_masked, n_parcels, atlas_summary
 
 
+def _resolve_fewshot_support_candidates(
+    test_stim_idx: np.ndarray,
+    model_dir: str,
+) -> tuple[np.ndarray, np.ndarray, str]:
+    """
+    Resolve few-shot support rows and corresponding template rows.
+
+    Returns:
+        support_rows: row indices into test_subj.test_fmri/test_stim_idx.
+        template_rows: matching row indices into builder.template_Z.
+        strategy: string tag for metrics/debugging.
+    """
+    test_stim_idx = np.asarray(test_stim_idx, dtype=np.int64).ravel()
+    if test_stim_idx.size == 0:
+        raise ValueError("test_stim_idx is empty.")
+    unique_test_idx = np.unique(test_stim_idx)
+    if unique_test_idx.size != test_stim_idx.size:
+        raise ValueError("test_stim_idx contains duplicates; expected unique canonical stimulus rows.")
+    if not np.array_equal(unique_test_idx, test_stim_idx):
+        raise ValueError("test_stim_idx must be sorted ascending for deterministic row mapping.")
+
+    shared_idx_path = os.path.join(model_dir, "shared_stim_idx.npy")
+    if not os.path.exists(shared_idx_path):
+        logger.warning(
+            "Missing shared_stim_idx.npy in %s; falling back to legacy few-shot row mapping.",
+            model_dir,
+        )
+        legacy_rows = np.arange(test_stim_idx.shape[0], dtype=np.int64)
+        return legacy_rows, legacy_rows.copy(), "legacy_all_rows"
+
+    shared_stim_idx = np.asarray(np.load(shared_idx_path), dtype=np.int64).ravel()
+    if shared_stim_idx.size == 0:
+        raise ValueError(f"Shared stimulus artifact is empty: {shared_idx_path}")
+    unique_shared = np.unique(shared_stim_idx)
+    if unique_shared.size != shared_stim_idx.size:
+        raise ValueError(f"Shared stimulus artifact contains duplicate IDs: {shared_idx_path}")
+    if not np.array_equal(unique_shared, shared_stim_idx):
+        logger.warning(
+            "shared_stim_idx.npy is not sorted; canonicalizing sorted unique order."
+        )
+        shared_stim_idx = unique_shared
+
+    rows = np.searchsorted(test_stim_idx, shared_stim_idx)
+    valid = (rows < test_stim_idx.size) & (test_stim_idx[rows] == shared_stim_idx)
+    if not np.any(valid):
+        raise ValueError(
+            f"Subject has zero overlap with training shared-stimulus artifact {shared_idx_path}."
+        )
+
+    support_rows = rows[valid].astype(np.int64, copy=False)
+    template_rows = np.nonzero(valid)[0].astype(np.int64, copy=False)
+    missing_count = int(shared_stim_idx.size - support_rows.size)
+    if missing_count > 0:
+        logger.warning(
+            "Test subject is missing %d/%d training shared stimuli; few-shot support "
+            "will use the %d overlapping rows.",
+            missing_count,
+            int(shared_stim_idx.size),
+            int(support_rows.size),
+        )
+    return support_rows, template_rows, "shared_stim_intersection"
+
+
+def _sample_support_shots(
+    support_rows: np.ndarray,
+    template_rows: np.ndarray,
+    n_shots: int,
+    seed: int,
+) -> tuple[np.ndarray, np.ndarray, int]:
+    """Sample few-shot rows from a precomputed support pool."""
+    if int(n_shots) < 1:
+        raise ValueError(f"n_shots must be >=1, got {n_shots}.")
+    if support_rows.size != template_rows.size:
+        raise ValueError(
+            "support_rows and template_rows must have identical lengths for row correspondence."
+        )
+    if support_rows.size == 0:
+        raise ValueError("Few-shot support pool is empty.")
+
+    actual_shots = int(min(int(n_shots), int(support_rows.size)))
+    rng = np.random.RandomState(seed)
+    pick = np.sort(rng.choice(support_rows.size, size=actual_shots, replace=False).astype(np.int64))
+    shot_rows = support_rows[pick].astype(np.int64, copy=False)
+    shot_template_rows = template_rows[pick].astype(np.int64, copy=False)
+    return shot_rows, shot_template_rows, actual_shots
+
+
 def predict_zero_shot(
     test_sub: int = 7,
     model_dir: str = "outputs/shared_space",
@@ -357,6 +443,18 @@ def predict_few_shot(
 
     # Split: support shots from train pool, evaluation from fixed held-out rows
     n_shared = int(len(test_subj.test_stim_idx))
+    support_candidates, support_template_candidates, support_strategy = (
+        _resolve_fewshot_support_candidates(
+            test_stim_idx=test_subj.test_stim_idx,
+            model_dir=model_dir,
+        )
+    )
+    logger.info(
+        "Few-shot support pool (%s): %d candidate rows before eval exclusion.",
+        support_strategy,
+        int(support_candidates.size),
+    )
+
     eval_split_meta = None
     eval_split_path = None
     if use_fixed_eval_split:
@@ -367,14 +465,20 @@ def predict_few_shot(
             eval_size=fixed_eval_size,
             seed=eval_split_seed,
         )
-        shot_indices, actual_shots = sample_shot_indices_from_fixed_eval(
-            n_shared=n_shared,
-            eval_indices=eval_indices,
+        support_mask = ~np.isin(support_candidates, eval_indices, assume_unique=False)
+        support_pool_rows = support_candidates[support_mask]
+        support_pool_template_rows = support_template_candidates[support_mask]
+        if support_pool_rows.size == 0:
+            raise ValueError(
+                "No few-shot rows remain in the shared-support pool after applying fixed eval split."
+            )
+        shot_indices, template_shot_indices, actual_shots = _sample_support_shots(
+            support_rows=support_pool_rows,
+            template_rows=support_pool_template_rows,
             n_shots=n_shots,
             seed=seed,
         )
     else:
-        rng = np.random.RandomState(seed)
         min_eval = 50  # minimum stimuli reserved for evaluation
         max_shots = n_shared - min_eval
         if max_shots < 1:
@@ -382,17 +486,32 @@ def predict_few_shot(
                 f"Not enough shared stimuli for few-shot: n_shared={n_shared}, "
                 f"need at least {min_eval + 1} (min_eval={min_eval} + 1 shot)"
             )
-        actual_shots = min(n_shots, max_shots)
-        shot_indices = np.sort(rng.choice(n_shared, size=actual_shots, replace=False))
+        support_pool_rows = support_candidates
+        support_pool_template_rows = support_template_candidates
+        if support_pool_rows.size == 0:
+            raise ValueError("Few-shot support pool is empty.")
+        max_shots = int(min(int(max_shots), int(support_pool_rows.size)))
+        if max_shots < 1:
+            raise ValueError(
+                f"Not enough support rows for few-shot after constraints: "
+                f"support_pool={int(support_pool_rows.size)}, max_shots={max_shots}."
+            )
+        requested_shots = int(min(int(n_shots), max_shots))
+        shot_indices, template_shot_indices, actual_shots = _sample_support_shots(
+            support_rows=support_pool_rows,
+            template_rows=support_pool_template_rows,
+            n_shots=requested_shots,
+            seed=seed,
+        )
         eval_indices = np.setdiff1d(np.arange(n_shared), shot_indices, assume_unique=False)
 
     shared_fmri = np.array(test_subj.test_fmri, dtype=np.float32)[shot_indices]
 
-    # Align (few-shot) — pass shot_indices for correct template row matching
+    # Align (few-shot) against template rows corresponding to the selected support stimuli.
     P_new, R_new = builder.align_new_subject_fewshot(
         rest_runs=test_subj.rest_runs,
         task_fmri_shared=shared_fmri,
-        shot_indices=shot_indices,
+        shot_indices=template_shot_indices,
         atlas_masked=atlas_masked,
         n_parcels=n_parcels,
     )
@@ -425,6 +544,10 @@ def predict_few_shot(
         "eval_split_mode": "fixed" if use_fixed_eval_split else "complement_random",
         "eval_indices": eval_indices.astype(np.int64).tolist(),
         "shot_indices": shot_indices.astype(np.int64).tolist(),
+        "shot_template_indices": template_shot_indices.astype(np.int64).tolist(),
+        "support_strategy": support_strategy,
+        "n_support_candidates": int(support_candidates.size),
+        "n_support_pool": int(support_pool_rows.size),
         "fine_tune": fine_tune,
         "mode": "few_shot",
     }

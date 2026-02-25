@@ -28,6 +28,24 @@ nsddata_timeseries/
 processed_data/
 outputs/
 
+# Binary data/model artifacts (global guardrail)
+# Keep committed only via explicit allowlists below.
+*.npy
+*.npz
+*.nii
+*.nii.gz
+*.mat
+*.h5
+*.hdf5
+*.pkl
+*.pt
+*.pth
+*.ckpt
+
+# Allow small committed test fixtures (if needed)
+!tests/fixtures/
+!tests/fixtures/**
+
 # Test/coverage artifacts
 .coverage
 htmlcov/
