@@ -2,6 +2,7 @@
 Full training pipeline: build shared space + train encoder.
 """
 
+import copy
 import hashlib
 import json
 import logging
@@ -23,6 +24,49 @@ from src.data.nsd_loader import NSDFeatures, NSDSubjectData
 from src.models.encoding import SharedSpaceEncoder
 
 logger = logging.getLogger(__name__)
+
+
+def _deep_merge_dict(base: dict, overrides: dict) -> dict:
+    """Recursively merge nested dicts; override non-dict leaves."""
+    for key, value in overrides.items():
+        if isinstance(base.get(key), dict) and isinstance(value, dict):
+            _deep_merge_dict(base[key], value)
+        else:
+            base[key] = copy.deepcopy(value)
+    return base
+
+
+def apply_config_overrides(config: dict, config_overrides: dict | None = None) -> dict:
+    """
+    Return a deep-copied config with optional nested overrides applied.
+
+    This prevents mutation of the loaded base config and supports sweep-time
+    parameter injection (e.g., subjects/alignment/encoding overrides).
+    """
+    if not isinstance(config, dict):
+        raise TypeError(f"config must be dict, got {type(config).__name__}")
+
+    merged = copy.deepcopy(config)
+    if config_overrides is None:
+        return merged
+    if not isinstance(config_overrides, dict):
+        raise TypeError(
+            f"config_overrides must be dict or None, got {type(config_overrides).__name__}"
+        )
+    return _deep_merge_dict(merged, config_overrides)
+
+
+def load_config(config_path: str, config_overrides: dict | None = None) -> dict:
+    """Load YAML config and apply optional deep-merge overrides."""
+    with open(config_path) as f:
+        loaded = yaml.safe_load(f)
+    if loaded is None:
+        loaded = {}
+    if not isinstance(loaded, dict):
+        raise TypeError(
+            f"Expected top-level YAML mapping in {config_path}, got {type(loaded).__name__}"
+        )
+    return apply_config_overrides(loaded, config_overrides=config_overrides)
 
 
 def set_seeds(seed: int = 42):
@@ -151,6 +195,8 @@ def train_pipeline(
     data_root: str = "processed_data",
     raw_data_root: str = ".",
     output_dir: str = "outputs/shared_space",
+    feature_type_override: str | None = None,
+    config_overrides: dict | None = None,
 ):
     """
     Complete training pipeline.
@@ -161,9 +207,8 @@ def train_pipeline(
     4. Train global encoder
     5. Save model artifacts with provenance
     """
-    # Load config
-    with open(config_path) as f:
-        config = yaml.safe_load(f)
+    # Load config (optionally patched by caller for sweeps).
+    config = load_config(config_path, config_overrides=config_overrides)
 
     seed = config.get("random_seed", 42)
     set_seeds(seed)
@@ -177,7 +222,16 @@ def train_pipeline(
     min_voxels_per_parcel = int(config["alignment"].get("min_voxels_per_parcel", 10))
     min_labeled_fraction_warn = float(config["alignment"].get("min_labeled_fraction_warn", 0.5))
     ridge_alpha = config["encoding"]["ridge_alpha"]
-    feature_type = config["features"]["type"]
+    config_feature_type = str(config["features"]["type"])
+    feature_type = config_feature_type
+    if feature_type_override is not None:
+        feature_type = str(feature_type_override)
+        config["features"]["type"] = feature_type
+        logger.info(
+            "Overriding feature backbone for training: config=%s, active=%s",
+            config_feature_type,
+            feature_type,
+        )
 
     logger.info(f"Training pipeline: subjects={train_subs}, mode={experiment_mode}")
     logger.info(f"  connectivity={connectivity_mode}, atlas={atlas_type}, k={n_components}")
@@ -361,10 +415,18 @@ def train_pipeline(
                 json.dump(atlas_utilization_report, f, indent=2)
 
     # Save provenance metadata
+    with open(config_path, "rb") as f:
+        config_hash = hashlib.sha256(f.read()).hexdigest()
+    effective_config_hash = hashlib.sha256(
+        json.dumps(config, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()
+
     metadata = {
         "timestamp": datetime.now().isoformat(),
-        "config_hash": hashlib.sha256(open(config_path, "rb").read()).hexdigest(),
+        "config_hash": config_hash,
+        "effective_config_hash": effective_config_hash,
         "train_subjects": train_subs,
+        "feature_type": feature_type,
         "k_global": builder.k_global,
         "n_parcels": n_parcels,
         "n_train_samples": X_concat.shape[0],
@@ -375,6 +437,8 @@ def train_pipeline(
             str(s): int(dropped_test_counts[s]) for s in train_subs
         },
     }
+    if config_overrides is not None:
+        metadata["config_overrides"] = copy.deepcopy(config_overrides)
     with open(os.path.join(output_dir, "metadata.json"), "w") as f:
         json.dump(metadata, f, indent=2)
 
@@ -391,6 +455,17 @@ if __name__ == "__main__":
     parser.add_argument("--data-root", default="processed_data")
     parser.add_argument("--raw-data-root", default=".")
     parser.add_argument("--output-dir", default="outputs/shared_space")
+    parser.add_argument(
+        "--feature-type",
+        default="",
+        help="Optional feature backbone override (e.g., clip, dinov2, clip_dinov2).",
+    )
     args = parser.parse_args()
 
-    train_pipeline(args.config, args.data_root, args.raw_data_root, args.output_dir)
+    train_pipeline(
+        args.config,
+        args.data_root,
+        args.raw_data_root,
+        args.output_dir,
+        feature_type_override=(args.feature_type.strip() or None),
+    )

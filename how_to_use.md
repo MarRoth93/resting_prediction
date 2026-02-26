@@ -55,6 +55,8 @@ pip install -r requirements.txt
 | torchvision | >= 0.15 | Image transforms |
 | open-clip-torch | >= 2.20 | CLIP features |
 | transformers | >= 4.30 | Pretrained models |
+| optuna | >= 3.0 | Hyperparameter optimization |
+| tensorboard | >= 2.0 | Sweep metric and hparam tracking |
 | nilearn | >= 0.10 | Optional neuroimaging utilities |
 | pytest | >= 7.0 | Testing |
 
@@ -313,6 +315,7 @@ python -m src.pipelines.train_shared_space \
 | `--data-root` | str | `processed_data` | Root for processed `.npy` files |
 | `--raw-data-root` | str | `.` | Root for raw NSD data (needed for atlas NIfTI files) |
 | `--output-dir` | str | `outputs/shared_space` | Where to save model artifacts |
+| `--feature-type` | str | `""` | Optional feature override (`clip`, `dinov2`, `clip_dinov2`) |
 
 ### What it does
 
@@ -347,7 +350,7 @@ Saved to `outputs/shared_space/`:
 
 | File | Description |
 |------|-------------|
-| `shared_space.npz` | SharedSpaceBuilder state (bases, rotations, template) |
+| `builder.npz` | SharedSpaceBuilder state (bases, rotations, template) |
 | `encoder.npz` | Ridge encoder weights (W, b, standardization params) |
 | `atlas_info.npz` | Harmonized atlas labels, parcel count |
 | `atlas_masked_{sub}.npy` | Per-subject atlas within mask (for all subjects including test) |
@@ -510,6 +513,66 @@ Saved to `outputs/ablations/fewshot/`:
 | `fewshot_sub7_N{X}_seed{Y}_pred.npy` | Individual predictions |
 | `fewshot_sub7_N{X}_seed{Y}_metrics.json` | Individual metrics |
 
+### Optuna Sweep (LOSO, Ridge + Alignment)
+
+**Script:** `src/pipelines/sweep_shared_space_optuna.py`
+
+This runs an Optuna study over:
+
+- `encoding.ridge_alpha` (log-scale)
+- `alignment.n_components` (integer step)
+
+Objective is mean LOSO zero-shot `median_r` across `subjects.train`.
+
+```bash
+# Full sweep (uses config defaults under sweep.shared_space)
+python -m src.pipelines.sweep_shared_space_optuna
+
+# Dry-run validation only (folds + search-space + settings)
+python -m src.pipelines.sweep_shared_space_optuna --dry-run
+
+# Typical custom run
+python -m src.pipelines.sweep_shared_space_optuna \
+    --study-name ridge_align_loso_v1 \
+    --n-trials 40 \
+    --alpha-min 1e-2 \
+    --alpha-max 1e5 \
+    --ncomp-min 20 \
+    --ncomp-max 120 \
+    --ncomp-step 5 \
+    --fixed-eval-size 250 \
+    --eval-split-seed 42
+```
+
+TensorBoard:
+
+```bash
+tensorboard --logdir outputs/hparam_sweeps/shared_space/tensorboard
+```
+
+Optional Slurm wrapper:
+
+```bash
+sbatch slurm_scripts/04b_optuna_sweep_job.sh
+```
+
+Key CLI flags:
+
+| Flag | Type | Description |
+|------|------|-------------|
+| `--study-name` | str | Study name used for Optuna storage + TensorBoard run grouping |
+| `--n-trials` | int | Number of trials |
+| `--timeout` | int | Optional timeout (seconds) |
+| `--storage` | str | Optuna storage URL or local DB path |
+| `--seed` | int | Sampler seed |
+| `--alpha-min` / `--alpha-max` | float | Ridge alpha search bounds |
+| `--ncomp-min` / `--ncomp-max` / `--ncomp-step` | int | `n_components` integer search grid |
+| `--fixed-eval-size` | int | Fixed held-out eval rows per fold subject |
+| `--eval-split-seed` | int | Eval split seed |
+| `--dry-run` | flag | Validate sweep setup without launching trials |
+| `--no-cleanup-trial-artifacts` | flag | Keep per-trial fold artifacts |
+| `--no-retrain-best` | flag | Skip final retrain on full train subjects |
+
 ---
 
 ## 10. Step 8 — Run Tests
@@ -635,6 +698,30 @@ evaluation:
   reliability_thresholds: [0.0, 0.1, 0.3]
   nc_floor: 0.1
   fewshot_shots: [0, 10, 25, 50, 100, 250, 500, 750]
+
+sweep:
+  shared_space:
+    study_name: "shared_space_optuna"
+    output_dir: "outputs/hparam_sweeps/shared_space"
+    n_trials: 40
+    timeout: null
+    sampler_seed: 42
+    cleanup_trial_artifacts: true
+    retrain_best: true
+    pruner:
+      type: "median"
+      n_startup_trials: 5
+      n_warmup_steps: 2
+      interval_steps: 1
+    search_space:
+      ridge_alpha:
+        min: 1.0e-2
+        max: 1.0e5
+        log: true
+      n_components:
+        min: 20
+        max: 120
+        step: 5
 ```
 
 ---
@@ -704,7 +791,7 @@ resting_prediction/
 
   outputs/                      # [generated] model + predictions
     shared_space/
-      shared_space.npz
+      builder.npz
       encoder.npz
       atlas_info.npz
       atlas_masked_1.npy

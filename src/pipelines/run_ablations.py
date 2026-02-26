@@ -16,6 +16,45 @@ from src.pipelines.predict_subject import predict_few_shot, predict_zero_shot
 logger = logging.getLogger(__name__)
 
 
+def _resolve_model_dirs(
+    feature_types: list[str],
+    default_feature: str,
+    base_model_dir: str,
+    eval_cfg: dict,
+) -> dict[str, str]:
+    """Resolve a model directory per feature backbone."""
+    resolved: dict[str, str] = {}
+    configured = eval_cfg.get("feature_model_dirs", {})
+    if isinstance(configured, dict):
+        for key, value in configured.items():
+            if value is None:
+                continue
+            value_str = str(value).strip()
+            if value_str:
+                resolved[str(key)] = value_str
+
+    for feature_type in feature_types:
+        if feature_type in resolved:
+            continue
+        if feature_type == default_feature:
+            resolved[feature_type] = base_model_dir
+        else:
+            resolved[feature_type] = f"{base_model_dir}_{feature_type}"
+    return resolved
+
+
+def _assert_model_artifacts(feature_type: str, model_dir: str) -> None:
+    """Ensure a feature backbone points at a trained shared-space model directory."""
+    required = ["builder.npz", "encoder.npz", "shared_stim_idx.npy"]
+    missing = [name for name in required if not os.path.exists(os.path.join(model_dir, name))]
+    if missing:
+        missing_joined = ", ".join(missing)
+        raise FileNotFoundError(
+            f"Missing model artifacts for feature_type={feature_type!r} in {model_dir!r}: {missing_joined}. "
+            f"Train this backbone first (e.g., train_shared_space --feature-type {feature_type})."
+        )
+
+
 def run_fewshot_ablation(
     test_sub: int = 7,
     shots_list: list[int] | None = None,
@@ -164,7 +203,7 @@ def run_feature_backbone_sweep(
     shots_list: list[int],
     n_repeats: int,
     base_seed: int,
-    model_dir: str,
+    model_dirs: dict[str, str],
     data_root: str,
     output_dir: str,
     n_bootstrap: int,
@@ -178,6 +217,7 @@ def run_feature_backbone_sweep(
     eval_split_seed: int = 42,
     reliability_thresholds: list[float] | None = None,
     precomputed_results: dict[str, dict] | None = None,
+    require_parcellation_artifacts: bool = False,
 ) -> dict:
     """
     Run few-shot ablation for multiple feature backbones with matched eval splits.
@@ -188,19 +228,31 @@ def run_feature_backbone_sweep(
     summary_rows: list[dict[str, float | int | str]] = []
 
     for feature_type in feature_types:
+        feature_model_dir = model_dirs[feature_type]
+        _assert_model_artifacts(feature_type, feature_model_dir)
+        if require_parcellation_artifacts:
+            _assert_model_artifacts_parcellation(feature_type, feature_model_dir, test_sub)
         if feature_type in precomputed_results:
-            logger.info(f"Feature backbone sweep: {feature_type} (using precomputed results)")
+            logger.info(
+                "Feature backbone sweep: %s (using precomputed results from %s)",
+                feature_type,
+                feature_model_dir,
+            )
             result = precomputed_results[feature_type]
         else:
             logger.info(f"\n{'='*60}")
-            logger.info(f"Feature backbone sweep: {feature_type}")
+            logger.info(
+                "Feature backbone sweep: %s (model_dir=%s)",
+                feature_type,
+                feature_model_dir,
+            )
             feature_dir = os.path.join(output_dir, f"feature_{feature_type}")
             result = run_fewshot_ablation(
                 test_sub=test_sub,
                 shots_list=shots_list,
                 n_repeats=n_repeats,
                 base_seed=base_seed,
-                model_dir=model_dir,
+                model_dir=feature_model_dir,
                 data_root=data_root,
                 feature_type=feature_type,
                 output_dir=feature_dir,
@@ -230,6 +282,7 @@ def run_feature_backbone_sweep(
 
         row = {
             "feature_type": feature_type,
+            "model_dir": feature_model_dir,
             "zero_shot_median_r": float(zero_metrics.get("median_r", np.nan)),
             "best_fewshot_n": int(best_n) if best_n is not None else -1,
             "best_fewshot_median_r": float(best_median) if np.isfinite(best_median) else float("nan"),
@@ -268,6 +321,22 @@ def run_feature_backbone_sweep(
 
     logger.info(f"Feature backbone sweep complete. Saved to {output_dir}")
     return sweep_results
+
+
+def _assert_model_artifacts_parcellation(
+    feature_type: str,
+    model_dir: str,
+    test_sub: int,
+) -> None:
+    """Require parcellation-specific artifacts used by prediction-time alignment."""
+    required = ["atlas_info.npz", f"atlas_masked_{test_sub}.npy"]
+    missing = [name for name in required if not os.path.exists(os.path.join(model_dir, name))]
+    if missing:
+        missing_joined = ", ".join(missing)
+        raise FileNotFoundError(
+            f"Missing parcellation artifacts for feature_type={feature_type!r} in {model_dir!r}: "
+            f"{missing_joined}. Re-run shared-space training for this backbone."
+        )
 
 
 if __name__ == "__main__":
@@ -338,13 +407,23 @@ if __name__ == "__main__":
         and not args.disable_feature_sweep
         and bool(eval_cfg.get("run_feature_sweep", True))
     )
+    require_parcellation_artifacts = (
+        str(config.get("alignment", {}).get("connectivity_mode", "")).strip() == "parcellation"
+    )
+
+    sweep_types = feature_types if default_feature in feature_types else [default_feature] + feature_types
+    model_dirs = _resolve_model_dirs(
+        feature_types=sweep_types,
+        default_feature=default_feature,
+        base_model_dir=args.model_dir,
+        eval_cfg=eval_cfg,
+    )
 
     common_kwargs = dict(
         test_sub=config["subjects"]["test"][0],
         shots_list=config["evaluation"]["fewshot_shots"],
         n_repeats=config.get("fewshot_n_repeats", 5),
         base_seed=config.get("random_seed", 42),
-        model_dir=args.model_dir,
         data_root=args.data_root,
         n_bootstrap=args.n_bootstrap if args.n_bootstrap != 5000 else int(stats_cfg.get("n_bootstrap", 5000)),
         ci_level=args.ci_level if args.ci_level != 95.0 else float(stats_cfg.get("ci_level", 95.0)),
@@ -359,17 +438,23 @@ if __name__ == "__main__":
     )
 
     primary_feature = default_feature
+    primary_model_dir = model_dirs[primary_feature]
+    _assert_model_artifacts(primary_feature, primary_model_dir)
+    if require_parcellation_artifacts:
+        _assert_model_artifacts_parcellation(primary_feature, primary_model_dir, config["subjects"]["test"][0])
     baseline_results = run_fewshot_ablation(
+        model_dir=primary_model_dir,
         feature_type=primary_feature,
         output_dir=os.path.join(args.output_dir, "fewshot"),
         **common_kwargs,
     )
 
     if run_feature_sweep:
-        sweep_types = feature_types if primary_feature in feature_types else [primary_feature] + feature_types
         run_feature_backbone_sweep(
             feature_types=sweep_types,
+            model_dirs=model_dirs,
             output_dir=os.path.join(args.output_dir, "feature_backbone_sweep"),
             precomputed_results={primary_feature: baseline_results},
+            require_parcellation_artifacts=require_parcellation_artifacts,
             **common_kwargs,
         )

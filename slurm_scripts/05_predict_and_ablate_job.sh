@@ -21,7 +21,7 @@ PREDICTION_DIR="${PREDICTION_DIR:-outputs/predictions}"
 ABLATION_DIR="${ABLATION_DIR:-outputs/ablations}"
 TEST_SUBJECT="${TEST_SUBJECT:-7}"
 FEWSHOT_N_SHOTS="${FEWSHOT_N_SHOTS:-100}"
-FEATURE_TYPE="${FEATURE_TYPE:-clip}"
+FEATURE_TYPE="${FEATURE_TYPE:-}"
 
 mkdir -p "${LOG_DIR}"
 
@@ -36,7 +36,7 @@ echo "PREDICTION_DIR: ${PREDICTION_DIR}"
 echo "ABLATION_DIR: ${ABLATION_DIR}"
 echo "TEST_SUBJECT: ${TEST_SUBJECT}"
 echo "FEWSHOT_N_SHOTS: ${FEWSHOT_N_SHOTS}"
-echo "FEATURE_TYPE: ${FEATURE_TYPE}"
+echo "FEATURE_TYPE: ${FEATURE_TYPE:-<auto from config>}"
 
 module purge
 module load miniconda
@@ -47,6 +47,26 @@ conda activate "${CONDA_ENV}"
 echo "Activated Conda environment: $(which python)"
 
 cd "${PROJECT_DIR}"
+
+if [[ -z "${FEATURE_TYPE}" ]]; then
+  FEATURE_TYPE=$(CONFIG_PATH="${CONFIG_PATH}" python - <<'PY'
+import os
+import yaml
+
+cfg_path = os.environ["CONFIG_PATH"]
+with open(cfg_path) as f:
+    cfg = yaml.safe_load(f)
+print(str(cfg.get("features", {}).get("type", "clip")).strip())
+PY
+)
+fi
+
+if [[ -z "${FEATURE_TYPE}" ]]; then
+  echo "Failed to resolve FEATURE_TYPE from ${CONFIG_PATH}"
+  exit 1
+fi
+
+echo "Resolved FEATURE_TYPE: ${FEATURE_TYPE}"
 
 python -u -m src.pipelines.predict_subject \
   --mode zero_shot \

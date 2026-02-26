@@ -14,6 +14,8 @@ torchvision>=0.15
 open-clip-torch>=2.20
 transformers>=4.30
 easydict>=1.13
+optuna>=3.0
+tensorboard>=2.0
 
 # Optional
 nilearn>=0.10

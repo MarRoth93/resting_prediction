@@ -82,3 +82,28 @@ evaluation:
     permutation_metric: "median_r"
     permutation_reference_condition: 0
     fdr_alpha: 0.05
+
+# Hyperparameter sweeps
+sweep:
+  shared_space:
+    study_name: "shared_space_optuna"
+    output_dir: "outputs/hparam_sweeps/shared_space"
+    n_trials: 40
+    timeout: null
+    sampler_seed: 42
+    cleanup_trial_artifacts: true
+    retrain_best: true
+    pruner:
+      type: "median"          # median, none
+      n_startup_trials: 5
+      n_warmup_steps: 2
+      interval_steps: 1
+    search_space:
+      ridge_alpha:
+        min: 1.0e-2
+        max: 1.0e5
+        log: true
+      n_components:
+        min: 20
+        max: 120
+        step: 5
