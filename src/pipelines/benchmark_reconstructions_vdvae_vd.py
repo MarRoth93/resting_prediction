@@ -107,6 +107,83 @@ def _safe_std(x: np.ndarray, axis: int, ddof: int = 0) -> np.ndarray:
     return s
 
 
+def _as_int_vector(arr: np.ndarray, name: str) -> np.ndarray:
+    vec = np.asarray(arr, dtype=np.int64).ravel()
+    if vec.ndim != 1:
+        raise ValueError(f"{name} must be 1D, got shape={vec.shape}.")
+    return vec
+
+
+def _validate_sorted_unique_stim_idx(stim_idx: np.ndarray, name: str) -> np.ndarray:
+    stim_idx = _as_int_vector(stim_idx, name=name)
+    if stim_idx.size == 0:
+        raise ValueError(f"{name} is empty.")
+    unique = np.unique(stim_idx)
+    if unique.size != stim_idx.size:
+        raise ValueError(f"{name} contains duplicate stimulus IDs.")
+    if not np.array_equal(unique, stim_idx):
+        raise ValueError(f"{name} must be sorted ascending for deterministic row mapping.")
+    return stim_idx
+
+
+def _validate_unique_stim_idx(stim_idx: np.ndarray, name: str) -> np.ndarray:
+    stim_idx = _as_int_vector(stim_idx, name=name)
+    if stim_idx.size == 0:
+        raise ValueError(f"{name} is empty.")
+    unique = np.unique(stim_idx)
+    if unique.size != stim_idx.size:
+        raise ValueError(f"{name} contains duplicate stimulus IDs.")
+    return stim_idx
+
+
+def _align_rows_by_stim_idx(
+    source_arr: np.ndarray,
+    source_stim_idx: np.ndarray,
+    query_stim_idx: np.ndarray,
+    label: str,
+    *,
+    require_all: bool = True,
+) -> tuple[np.ndarray, np.ndarray]:
+    source_stim_idx = _validate_unique_stim_idx(
+        source_stim_idx,
+        name=f"{label} source_stim_idx",
+    )
+    query_stim_idx = _validate_unique_stim_idx(query_stim_idx, name=f"{label} query_stim_idx")
+    if int(source_arr.shape[0]) != int(source_stim_idx.shape[0]):
+        raise ValueError(
+            f"{label} row mismatch: array rows={int(source_arr.shape[0])}, "
+            f"stim_idx rows={int(source_stim_idx.shape[0])}."
+        )
+
+    row_by_stim = {int(stim): idx for idx, stim in enumerate(source_stim_idx.tolist())}
+    mapped_rows = np.array([row_by_stim.get(int(stim), -1) for stim in query_stim_idx], dtype=np.int64)
+    valid_mask = mapped_rows >= 0
+    n_valid = int(valid_mask.sum())
+    n_total = int(query_stim_idx.shape[0])
+    if n_valid == 0:
+        raise ValueError(
+            f"{label} has zero overlap with requested stimuli "
+            f"(requested={n_total}, available={int(source_stim_idx.shape[0])})."
+        )
+    if require_all and n_valid != n_total:
+        missing = query_stim_idx[~valid_mask]
+        preview = ", ".join(str(int(v)) for v in missing[:10])
+        suffix = "" if missing.size <= 10 else ", ..."
+        raise ValueError(
+            f"{label} missing {int(missing.size)}/{n_total} requested stimuli. "
+            f"Examples: [{preview}{suffix}]"
+        )
+    if n_valid != n_total:
+        logger.warning(
+            "%s missing %d/%d requested stimuli; using the %d overlapping rows.",
+            label,
+            n_total - n_valid,
+            n_total,
+            n_valid,
+        )
+    return source_arr[mapped_rows[valid_mask]], valid_mask
+
+
 def _slice_eval_rows(
     test_arr: np.ndarray,
     eval_indices: np.ndarray,
@@ -173,6 +250,13 @@ def _find_split_stim_indices(
     return best_arr, best_key
 
 
+def _load_stim_idx_file(path: Path, label: str) -> np.ndarray:
+    if not path.exists():
+        raise FileNotFoundError(f"Missing {label} file: {path}")
+    arr = np.load(path)
+    return _validate_unique_stim_idx(arr, name=label)
+
+
 def _align_train_rows(
     train_matrix: np.ndarray,
     train_stim_idx: np.ndarray,
@@ -221,20 +305,80 @@ def _align_train_rows(
             {"mode": "stim_index", "rows_used": n_valid, "rows_requested": n_target},
         )
 
-    n_common = min(n_fmri, n_target)
-    logger.warning(
-        "%s train rows mismatch (fmri=%d, target=%d). Falling back to first %d rows. "
-        "Provide train stimulus indices in the feature NPZ for exact alignment.",
-        label,
-        n_fmri,
-        n_target,
-        n_common,
+    raise ValueError(
+        f"{label} train rows mismatch (fmri={n_fmri}, target={n_target}) and "
+        "no target stimulus indices were provided. "
+        "Provide explicit train stimulus indices for exact alignment."
     )
-    return (
-        train_matrix[:n_common],
-        train_targets[:n_common],
-        {"mode": "prefix", "rows_used": n_common, "rows_requested": n_target},
+
+
+def _require_file(path: Path, label: str):
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Missing required {label}: {path}. "
+            "Generate local reconstruction features under processed_data/reconstruction_features "
+            "and pass explicit paths if you use a non-default location."
+        )
+
+
+def _require_model_root(model_root: Path):
+    vdvae_dir = model_root / "vdvae"
+    vd_dir = model_root / "versatile_diffusion"
+    if not vdvae_dir.exists() or not vd_dir.exists():
+        raise FileNotFoundError(
+            f"Model root is missing expected folders: {model_root}. "
+            "Expected both 'vdvae/' and 'versatile_diffusion/'."
+        )
+    return model_root
+
+
+def _load_clip_split_with_stim_idx(
+    split_arr_path: Path,
+    split_stim_idx_path: Path | None,
+    fallback_stim_idx: np.ndarray | None,
+    split_label: str,
+) -> tuple[np.ndarray, np.ndarray]:
+    _require_file(split_arr_path, split_label)
+    arr = np.load(split_arr_path).astype(np.float32)
+    if split_stim_idx_path is not None:
+        stim_idx = _load_stim_idx_file(split_stim_idx_path, f"{split_label} stim_idx")
+        if int(stim_idx.shape[0]) != int(arr.shape[0]):
+            raise ValueError(
+                f"{split_label} rows mismatch: array rows={int(arr.shape[0])}, "
+                f"stim_idx rows={int(stim_idx.shape[0])}."
+            )
+        return arr, stim_idx
+    if fallback_stim_idx is None:
+        raise ValueError(
+            f"{split_label} stimulus indices are required for strict alignment. "
+            "Pass --cliptext-*-stim-idx / --clipvision-*-stim-idx or include matching "
+            "indices in the VDVAE feature NPZ."
+        )
+    if int(fallback_stim_idx.shape[0]) != int(arr.shape[0]):
+        raise ValueError(
+            f"{split_label} rows mismatch and no matching explicit stim_idx file was provided: "
+            f"array rows={int(arr.shape[0])}, fallback rows={int(fallback_stim_idx.shape[0])}."
+        )
+    logger.info("%s: using VDVAE stimulus indices as fallback.", split_label)
+    return arr, fallback_stim_idx
+
+
+def _resolve_vdvae_stim_idx(
+    vdvae_features: np.lib.npyio.NpzFile,
+    split: str,
+    expected_rows: int,
+) -> tuple[np.ndarray, str]:
+    stim_idx, key = _find_split_stim_indices(vdvae_features, split=split, expected_rows=expected_rows)
+    if stim_idx is None or key is None:
+        raise ValueError(
+            f"VDVAE features are missing {split} stimulus indices (rows={expected_rows}). "
+            "Include a 1D sorted unique NSD stimulus index array in the NPZ for strict alignment."
+        )
+    stim_idx = _validate_unique_stim_idx(
+        np.asarray(stim_idx, dtype=np.int64),
+        name=f"VDVAE {split} stim_idx ({key})",
     )
+    return stim_idx, key
 
 
 def _standardize_fmri(
@@ -574,13 +718,17 @@ def run_benchmark(
     predictions_dir: Path,
     ablation_dir: Path,
     output_dir: Path,
-    brain_diffuser_root: Path,
+    recon_model_root: Path,
     vdvae_feature_npz: Path,
     vdvae_ref_npz: Path,
     cliptext_train_npy: Path,
     cliptext_test_npy: Path,
     clipvision_train_npy: Path,
     clipvision_test_npy: Path,
+    cliptext_train_stim_idx_npy: Path | None,
+    cliptext_test_stim_idx_npy: Path | None,
+    clipvision_train_stim_idx_npy: Path | None,
+    clipvision_test_stim_idx_npy: Path | None,
     vd_weights_path: Path,
     test_images_npy: Path | None,
     test_images_dir: Path | None,
@@ -601,12 +749,29 @@ def run_benchmark(
     vd_ddim_steps: int,
     vd_ddim_eta: float,
     n_panels: int,
+    require_full_eval_coverage: bool = True,
+    reuse_predicted_features: bool = False,
 ):
+    recon_model_root = _require_model_root(recon_model_root)
+    _require_file(vdvae_feature_npz, "VDVAE feature NPZ")
+    _require_file(vdvae_ref_npz, "VDVAE reference latent NPZ")
+    _require_file(vd_weights_path, "Versatile Diffusion checkpoint")
+    _require_file(cliptext_train_npy, "CLIP-text train features")
+    _require_file(cliptext_test_npy, "CLIP-text test features")
+    _require_file(clipvision_train_npy, "CLIP-vision train features")
+    _require_file(clipvision_test_npy, "CLIP-vision test features")
+
     subj_dir = data_root / f"subj{test_sub:02d}"
     train_fmri = np.load(subj_dir / "train_fmri.npy").astype(np.float32)
-    train_stim_idx = np.load(subj_dir / "train_stim_idx.npy").astype(np.int64)
+    train_stim_idx = _validate_sorted_unique_stim_idx(
+        np.load(subj_dir / "train_stim_idx.npy").astype(np.int64),
+        name=f"subj{test_sub:02d} train_stim_idx",
+    )
     gt_test_fmri = np.load(subj_dir / "test_fmri.npy").astype(np.float32)
-    test_stim_idx = np.load(subj_dir / "test_stim_idx.npy").astype(np.int64)
+    test_stim_idx = _validate_sorted_unique_stim_idx(
+        np.load(subj_dir / "test_stim_idx.npy").astype(np.int64),
+        name=f"subj{test_sub:02d} test_stim_idx",
+    )
     if train_stim_idx.shape[0] != train_fmri.shape[0]:
         raise ValueError(
             f"train_stim_idx rows mismatch: train_stim_idx={train_stim_idx.shape[0]}, "
@@ -648,7 +813,10 @@ def run_benchmark(
     gt_eval = gt_test_fmri[eval_indices]
     zero_eval = zero_test_fmri[eval_indices]
     few_eval = few_pred
-    stim_eval = test_stim_idx[eval_indices]
+    stim_eval = _validate_unique_stim_idx(
+        np.asarray(test_stim_idx[eval_indices], dtype=np.int64),
+        name=f"subj{test_sub:02d} eval_stim_idx",
+    )
 
     cond_fmri = {
         "gt_fmri": gt_eval,
@@ -656,88 +824,151 @@ def run_benchmark(
         "few_shot": few_eval,
     }
 
-    vdvae_features = np.load(vdvae_feature_npz)
-    train_vdvae = vdvae_features["train_latents"].astype(np.float32)
-    test_vdvae = vdvae_features["test_latents"].astype(np.float32)
-    vdvae_train_stim_idx, vdvae_train_stim_key = _find_split_stim_indices(
-        vdvae_features,
-        split="train",
-        expected_rows=train_vdvae.shape[0],
-    )
-    if vdvae_train_stim_idx is not None and vdvae_train_stim_key is not None:
-        logger.info("Using VDVAE train stimulus indices from key '%s' for row alignment.", vdvae_train_stim_key)
-    test_vdvae_eval, vdvae_eval_mask = _slice_eval_rows(test_vdvae, eval_indices, "VDVAE")
+    with np.load(vdvae_feature_npz) as vdvae_features:
+        train_vdvae = vdvae_features["train_latents"].astype(np.float32)
+        test_vdvae = vdvae_features["test_latents"].astype(np.float32)
+        vdvae_train_stim_idx, vdvae_train_stim_key = _resolve_vdvae_stim_idx(
+            vdvae_features,
+            split="train",
+            expected_rows=train_vdvae.shape[0],
+        )
+        vdvae_test_stim_idx, vdvae_test_stim_key = _resolve_vdvae_stim_idx(
+            vdvae_features,
+            split="test",
+            expected_rows=test_vdvae.shape[0],
+        )
 
-    train_cliptext = np.load(cliptext_train_npy).astype(np.float32)
-    test_cliptext = np.load(cliptext_test_npy).astype(np.float32)
-    test_cliptext_eval, cliptext_eval_mask = _slice_eval_rows(test_cliptext, eval_indices, "CLIP-text")
-
-    train_clipvision = np.load(clipvision_train_npy).astype(np.float32)
-    test_clipvision = np.load(clipvision_test_npy).astype(np.float32)
-    test_clipvision_eval, clipvision_eval_mask = _slice_eval_rows(
-        test_clipvision, eval_indices, "CLIP-vision"
+    logger.info(
+        "Using VDVAE train/test stimulus indices from keys '%s' and '%s'.",
+        vdvae_train_stim_key,
+        vdvae_test_stim_key,
     )
-
-    x_train_all, x_cond = _standardize_fmri(train_fmri, cond_fmri, fmri_scale=fmri_scale)
-    cliptext_train_stim_idx = (
-        vdvae_train_stim_idx if vdvae_train_stim_idx is not None and len(vdvae_train_stim_idx) == train_cliptext.shape[0] else None
-    )
-    clipvision_train_stim_idx = (
-        vdvae_train_stim_idx if vdvae_train_stim_idx is not None and len(vdvae_train_stim_idx) == train_clipvision.shape[0] else None
-    )
-    x_train_vdvae, train_vdvae_aligned, vdvae_train_align = _align_train_rows(
-        train_matrix=x_train_all,
-        train_stim_idx=train_stim_idx,
-        train_targets=train_vdvae,
-        label="VDVAE",
-        target_train_stim_idx=vdvae_train_stim_idx,
-    )
-    x_train_cliptext, train_cliptext_aligned, cliptext_train_align = _align_train_rows(
-        train_matrix=x_train_all,
-        train_stim_idx=train_stim_idx,
-        train_targets=train_cliptext,
-        label="CLIP-text",
-        target_train_stim_idx=cliptext_train_stim_idx,
-    )
-    x_train_clipvision, train_clipvision_aligned, clipvision_train_align = _align_train_rows(
-        train_matrix=x_train_all,
-        train_stim_idx=train_stim_idx,
-        train_targets=train_clipvision,
-        label="CLIP-vision",
-        target_train_stim_idx=clipvision_train_stim_idx,
+    test_vdvae_eval, vdvae_eval_mask = _align_rows_by_stim_idx(
+        source_arr=test_vdvae,
+        source_stim_idx=vdvae_test_stim_idx,
+        query_stim_idx=stim_eval,
+        label="VDVAE eval",
+        require_all=require_full_eval_coverage,
     )
 
-    logger.info("Regressing VDVAE latents (alpha=%s)", vdvae_alpha)
-    pred_vdvae = _predict_vdvae_latents(
-        x_train=x_train_vdvae,
-        x_cond=x_cond,
-        train_latents=train_vdvae_aligned,
-        alpha=vdvae_alpha,
-        max_iter=ridge_max_iter,
-        chunk_size=vdvae_chunk_size,
+    train_cliptext, cliptext_train_stim_idx = _load_clip_split_with_stim_idx(
+        split_arr_path=cliptext_train_npy,
+        split_stim_idx_path=cliptext_train_stim_idx_npy,
+        fallback_stim_idx=vdvae_train_stim_idx,
+        split_label="CLIP-text train",
+    )
+    test_cliptext, cliptext_test_stim_idx = _load_clip_split_with_stim_idx(
+        split_arr_path=cliptext_test_npy,
+        split_stim_idx_path=cliptext_test_stim_idx_npy,
+        fallback_stim_idx=vdvae_test_stim_idx,
+        split_label="CLIP-text test",
+    )
+    test_cliptext_eval, cliptext_eval_mask = _align_rows_by_stim_idx(
+        source_arr=test_cliptext,
+        source_stim_idx=cliptext_test_stim_idx,
+        query_stim_idx=stim_eval,
+        label="CLIP-text eval",
+        require_all=require_full_eval_coverage,
     )
 
-    logger.info("Regressing CLIP-text features (alpha=%s)", cliptext_alpha)
-    pred_cliptext = _predict_clip_embeddings(
-        x_train=x_train_cliptext,
-        x_cond=x_cond,
-        train_clip=train_cliptext_aligned,
-        alpha=cliptext_alpha,
-        max_iter=ridge_max_iter,
-        label="CLIP-text",
+    train_clipvision, clipvision_train_stim_idx = _load_clip_split_with_stim_idx(
+        split_arr_path=clipvision_train_npy,
+        split_stim_idx_path=clipvision_train_stim_idx_npy,
+        fallback_stim_idx=vdvae_train_stim_idx,
+        split_label="CLIP-vision train",
     )
-
-    logger.info("Regressing CLIP-vision features (alpha=%s)", clipvision_alpha)
-    pred_clipvision = _predict_clip_embeddings(
-        x_train=x_train_clipvision,
-        x_cond=x_cond,
-        train_clip=train_clipvision_aligned,
-        alpha=clipvision_alpha,
-        max_iter=ridge_max_iter,
-        label="CLIP-vision",
+    test_clipvision, clipvision_test_stim_idx = _load_clip_split_with_stim_idx(
+        split_arr_path=clipvision_test_npy,
+        split_stim_idx_path=clipvision_test_stim_idx_npy,
+        fallback_stim_idx=vdvae_test_stim_idx,
+        split_label="CLIP-vision test",
+    )
+    test_clipvision_eval, clipvision_eval_mask = _align_rows_by_stim_idx(
+        source_arr=test_clipvision,
+        source_stim_idx=clipvision_test_stim_idx,
+        query_stim_idx=stim_eval,
+        label="CLIP-vision eval",
+        require_all=require_full_eval_coverage,
     )
 
     pred_feature_dir = output_dir / "predicted_features"
+
+    # --reuse-predicted-features: load cached predictions instead of re-running ridge
+    if reuse_predicted_features:
+        cond_names = list(cond_fmri.keys())
+        expected_files = [
+            pred_feature_dir / f"{name}_{mod}.npy"
+            for name in cond_names
+            for mod in ("vdvae", "cliptext", "clipvision")
+        ]
+        missing = [p for p in expected_files if not p.exists()]
+        if missing:
+            raise FileNotFoundError(
+                f"--reuse-predicted-features: missing cached files: {[str(p) for p in missing]}"
+            )
+        pred_vdvae = {name: np.load(pred_feature_dir / f"{name}_vdvae.npy") for name in cond_names}
+        pred_cliptext = {name: np.load(pred_feature_dir / f"{name}_cliptext.npy") for name in cond_names}
+        pred_clipvision = {name: np.load(pred_feature_dir / f"{name}_clipvision.npy") for name in cond_names}
+        logger.info("Loaded cached predicted features from %s", pred_feature_dir)
+        # Populate train-alignment info placeholders for summary
+        vdvae_train_align = {"rows_used": -1, "mode": "reused_cache"}
+        cliptext_train_align = {"rows_used": -1, "mode": "reused_cache"}
+        clipvision_train_align = {"rows_used": -1, "mode": "reused_cache"}
+    else:
+        x_train_all, x_cond = _standardize_fmri(train_fmri, cond_fmri, fmri_scale=fmri_scale)
+        x_train_vdvae, train_vdvae_aligned, vdvae_train_align = _align_train_rows(
+            train_matrix=x_train_all,
+            train_stim_idx=train_stim_idx,
+            train_targets=train_vdvae,
+            label="VDVAE",
+            target_train_stim_idx=vdvae_train_stim_idx,
+        )
+        x_train_cliptext, train_cliptext_aligned, cliptext_train_align = _align_train_rows(
+            train_matrix=x_train_all,
+            train_stim_idx=train_stim_idx,
+            train_targets=train_cliptext,
+            label="CLIP-text",
+            target_train_stim_idx=cliptext_train_stim_idx,
+        )
+        x_train_clipvision, train_clipvision_aligned, clipvision_train_align = _align_train_rows(
+            train_matrix=x_train_all,
+            train_stim_idx=train_stim_idx,
+            train_targets=train_clipvision,
+            label="CLIP-vision",
+            target_train_stim_idx=clipvision_train_stim_idx,
+        )
+
+        logger.info("Regressing VDVAE latents (alpha=%s)", vdvae_alpha)
+        pred_vdvae = _predict_vdvae_latents(
+            x_train=x_train_vdvae,
+            x_cond=x_cond,
+            train_latents=train_vdvae_aligned,
+            alpha=vdvae_alpha,
+            max_iter=ridge_max_iter,
+            chunk_size=vdvae_chunk_size,
+        )
+
+        logger.info("Regressing CLIP-text features (alpha=%s)", cliptext_alpha)
+        pred_cliptext = _predict_clip_embeddings(
+            x_train=x_train_cliptext,
+            x_cond=x_cond,
+            train_clip=train_cliptext_aligned,
+            alpha=cliptext_alpha,
+            max_iter=ridge_max_iter,
+            label="CLIP-text",
+        )
+
+        logger.info("Regressing CLIP-vision features (alpha=%s)", clipvision_alpha)
+        pred_clipvision = _predict_clip_embeddings(
+            x_train=x_train_clipvision,
+            x_cond=x_cond,
+            train_clip=train_clipvision_aligned,
+            alpha=clipvision_alpha,
+            max_iter=ridge_max_iter,
+            label="CLIP-vision",
+        )
+
+    pred_feature_dir.mkdir(parents=True, exist_ok=True)
     recon_vdvae_dir = output_dir / "reconstructions_vdvae"
     recon_final_dir = output_dir / "reconstructions"
     panels_dir = output_dir / "panels"
@@ -772,6 +1003,8 @@ def run_benchmark(
             "cliptext_train_alignment_mode": str(cliptext_train_align["mode"]),
             "clipvision_train_alignment_mode": str(clipvision_train_align["mode"]),
             "vdvae_train_stim_key": vdvae_train_stim_key or "",
+            "vdvae_test_stim_key": vdvae_test_stim_key or "",
+            "require_full_eval_coverage": bool(require_full_eval_coverage),
         },
         "versatile_diffusion": {
             "weights": str(vd_weights_path),
@@ -813,7 +1046,7 @@ def run_benchmark(
         }
 
     ref_latent = np.load(vdvae_ref_npz, allow_pickle=True)["ref_latent"]
-    ema_vae = _load_vdvae_model(brain_diffuser_root=brain_diffuser_root)
+    ema_vae = _load_vdvae_model(brain_diffuser_root=recon_model_root)
 
     for name in cond_fmri:
         logger.info("Decoding VDVAE condition: %s", name)
@@ -829,7 +1062,7 @@ def run_benchmark(
         )
 
     net, sampler, utx, uim = _load_versatile_components(
-        brain_diffuser_root=brain_diffuser_root,
+        brain_diffuser_root=recon_model_root,
         vd_weights_path=vd_weights_path,
         device=device,
         precision=precision,
@@ -935,37 +1168,33 @@ if __name__ == "__main__":
     parser.add_argument("--data-root", default="processed_data")
     parser.add_argument("--predictions-dir", default="outputs/predictions")
     parser.add_argument("--ablation-dir", default="outputs/ablations/fewshot")
-    parser.add_argument("--output-dir", default="outputs/reconstruction_benchmark_vdvae_vd/subj07")
-
-    parser.add_argument("--brain-diffuser-root", default="/home/rothermm/brain-diffuser")
     parser.add_argument(
-        "--vdvae-feature-npz",
-        default="/home/rothermm/brain-diffuser/data/extracted_features/subj07/nsd_vdvae_features_31l.npz",
+        "--output-dir",
+        default="",
+        help="Benchmark output directory. Defaults to outputs/reconstruction_benchmark_vdvae_vd/subjXX.",
     )
     parser.add_argument(
-        "--vdvae-ref-npz",
-        default="/home/rothermm/brain-diffuser/data/extracted_features/subj07/ref_latents.npz",
+        "--recon-model-root",
+        default="/home/rothermm/brain-diffuser",
+        help="Local model checkout root containing vdvae/ and versatile_diffusion/ folders.",
     )
+    parser.add_argument("--brain-diffuser-root", default="", help=argparse.SUPPRESS)
     parser.add_argument(
-        "--cliptext-train-npy",
-        default="/home/rothermm/brain-diffuser/data/extracted_features/subj07/nsd_cliptext_train.npy",
+        "--recon-feature-dir",
+        default="",
+        help="Directory with local reconstruction features. Defaults to data_root/reconstruction_features/subjXX.",
     )
-    parser.add_argument(
-        "--cliptext-test-npy",
-        default="/home/rothermm/brain-diffuser/data/extracted_features/subj07/nsd_cliptext_test.npy",
-    )
-    parser.add_argument(
-        "--clipvision-train-npy",
-        default="/home/rothermm/brain-diffuser/data/extracted_features/subj07/nsd_clipvision_train.npy",
-    )
-    parser.add_argument(
-        "--clipvision-test-npy",
-        default="/home/rothermm/brain-diffuser/data/extracted_features/subj07/nsd_clipvision_test.npy",
-    )
-    parser.add_argument(
-        "--vd-weights-path",
-        default="/home/rothermm/brain-diffuser/versatile_diffusion/pretrained/vd-four-flow-v1-0-fp16-deprecated.pth",
-    )
+    parser.add_argument("--vdvae-feature-npz", default="")
+    parser.add_argument("--vdvae-ref-npz", default="")
+    parser.add_argument("--cliptext-train-npy", default="")
+    parser.add_argument("--cliptext-test-npy", default="")
+    parser.add_argument("--clipvision-train-npy", default="")
+    parser.add_argument("--clipvision-test-npy", default="")
+    parser.add_argument("--cliptext-train-stim-idx", default="")
+    parser.add_argument("--cliptext-test-stim-idx", default="")
+    parser.add_argument("--clipvision-train-stim-idx", default="")
+    parser.add_argument("--clipvision-test-stim-idx", default="")
+    parser.add_argument("--vd-weights-path", default="")
 
     parser.add_argument(
         "--test-images-npy",
@@ -998,7 +1227,73 @@ if __name__ == "__main__":
     parser.add_argument("--vd-ddim-eta", type=float, default=0.0)
 
     parser.add_argument("--n-panels", type=int, default=20)
+    parser.add_argument(
+        "--allow-partial-eval-feature-coverage",
+        action="store_true",
+        default=False,
+        help="Allow feature evaluation to proceed on overlapping eval stimuli instead of requiring full coverage.",
+    )
+    parser.add_argument(
+        "--reuse-predicted-features",
+        action="store_true",
+        default=False,
+        help="Skip ridge regression and load cached predicted features from a previous run.",
+    )
     args = parser.parse_args()
+
+    subj_tag = f"subj{args.test_sub:02d}"
+    output_dir = (
+        Path(args.output_dir)
+        if args.output_dir
+        else Path("outputs") / "reconstruction_benchmark_vdvae_vd" / subj_tag
+    )
+    recon_model_root = (
+        Path(args.brain_diffuser_root)
+        if args.brain_diffuser_root
+        else Path(args.recon_model_root)
+    )
+    feature_dir = (
+        Path(args.recon_feature_dir)
+        if args.recon_feature_dir
+        else Path(args.data_root) / "reconstruction_features" / subj_tag
+    )
+
+    def _resolve_path(value: str, default_path: Path) -> Path:
+        return Path(value) if value else default_path
+
+    def _resolve_optional_path(value: str, default_path: Path) -> Path | None:
+        if value:
+            return Path(value)
+        if default_path.exists():
+            return default_path
+        return None
+
+    vdvae_feature_npz = _resolve_path(args.vdvae_feature_npz, feature_dir / "vdvae_features.npz")
+    vdvae_ref_npz = _resolve_path(args.vdvae_ref_npz, feature_dir / "ref_latents.npz")
+    cliptext_train_npy = _resolve_path(args.cliptext_train_npy, feature_dir / "cliptext_train.npy")
+    cliptext_test_npy = _resolve_path(args.cliptext_test_npy, feature_dir / "cliptext_test.npy")
+    clipvision_train_npy = _resolve_path(args.clipvision_train_npy, feature_dir / "clipvision_train.npy")
+    clipvision_test_npy = _resolve_path(args.clipvision_test_npy, feature_dir / "clipvision_test.npy")
+    cliptext_train_stim_idx_npy = _resolve_optional_path(
+        args.cliptext_train_stim_idx,
+        feature_dir / "cliptext_train_stim_idx.npy",
+    )
+    cliptext_test_stim_idx_npy = _resolve_optional_path(
+        args.cliptext_test_stim_idx,
+        feature_dir / "cliptext_test_stim_idx.npy",
+    )
+    clipvision_train_stim_idx_npy = _resolve_optional_path(
+        args.clipvision_train_stim_idx,
+        feature_dir / "clipvision_train_stim_idx.npy",
+    )
+    clipvision_test_stim_idx_npy = _resolve_optional_path(
+        args.clipvision_test_stim_idx,
+        feature_dir / "clipvision_test_stim_idx.npy",
+    )
+    vd_weights_path = _resolve_path(
+        args.vd_weights_path,
+        recon_model_root / "versatile_diffusion" / "pretrained" / "vd-four-flow-v1-0-fp16-deprecated.pth",
+    )
 
     test_images_npy = Path(args.test_images_npy) if args.test_images_npy else None
     test_images_dir = Path(args.test_images_dir) if args.test_images_dir else None
@@ -1008,15 +1303,19 @@ if __name__ == "__main__":
         data_root=Path(args.data_root),
         predictions_dir=Path(args.predictions_dir),
         ablation_dir=Path(args.ablation_dir),
-        output_dir=Path(args.output_dir),
-        brain_diffuser_root=Path(args.brain_diffuser_root),
-        vdvae_feature_npz=Path(args.vdvae_feature_npz),
-        vdvae_ref_npz=Path(args.vdvae_ref_npz),
-        cliptext_train_npy=Path(args.cliptext_train_npy),
-        cliptext_test_npy=Path(args.cliptext_test_npy),
-        clipvision_train_npy=Path(args.clipvision_train_npy),
-        clipvision_test_npy=Path(args.clipvision_test_npy),
-        vd_weights_path=Path(args.vd_weights_path),
+        output_dir=output_dir,
+        recon_model_root=recon_model_root,
+        vdvae_feature_npz=vdvae_feature_npz,
+        vdvae_ref_npz=vdvae_ref_npz,
+        cliptext_train_npy=cliptext_train_npy,
+        cliptext_test_npy=cliptext_test_npy,
+        clipvision_train_npy=clipvision_train_npy,
+        clipvision_test_npy=clipvision_test_npy,
+        cliptext_train_stim_idx_npy=cliptext_train_stim_idx_npy,
+        cliptext_test_stim_idx_npy=cliptext_test_stim_idx_npy,
+        clipvision_train_stim_idx_npy=clipvision_train_stim_idx_npy,
+        clipvision_test_stim_idx_npy=clipvision_test_stim_idx_npy,
+        vd_weights_path=vd_weights_path,
         test_images_npy=test_images_npy,
         test_images_dir=test_images_dir,
         fewshot_n_shots=args.fewshot_n_shots,
@@ -1036,4 +1335,6 @@ if __name__ == "__main__":
         vd_ddim_steps=args.vd_ddim_steps,
         vd_ddim_eta=args.vd_ddim_eta,
         n_panels=args.n_panels,
+        require_full_eval_coverage=not args.allow_partial_eval_feature_coverage,
+        reuse_predicted_features=args.reuse_predicted_features,
     )

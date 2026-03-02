@@ -281,7 +281,7 @@ def make_loso_objective(
                 fold_scores.append(score)
                 fold_scores_by_sub[str(int(fold_val_sub))] = score
 
-                interim = float(np.mean(fold_scores))
+                interim = float(np.round(np.mean(fold_scores), 12))
                 trial.report(interim, step=fold_step)
                 _maybe_add_scalar(writer, f"fold/sub{int(fold_val_sub):02d}_median_r", score, trial.number)
                 _maybe_add_scalar(writer, "trial/intermediate_objective", interim, trial.number)
@@ -292,7 +292,7 @@ def make_loso_objective(
                     _maybe_add_scalar(writer, "trial/pruned", 1.0, trial.number)
                     raise optuna_mod.TrialPruned(f"Pruned after fold {fold_step}.")
 
-            objective_value = float(np.mean(fold_scores))
+            objective_value = float(np.round(np.mean(fold_scores), 12))
             elapsed = float(time.time() - started)
             trial.set_user_attr("fold_scores", fold_scores_by_sub)
             trial.set_user_attr("trial_seconds", elapsed)
@@ -416,6 +416,7 @@ def run_shared_space_sweep(
     fixed_eval_size: int | None = None,
     eval_split_seed: int | None = None,
     output_root: str | None = None,
+    best_model_dir: str | None = None,
     cleanup_trial_artifacts: bool | None = None,
     retrain_best: bool | None = None,
     dry_run: bool = False,
@@ -488,6 +489,11 @@ def run_shared_space_sweep(
         "eval_split_seed": int(settings["eval_split_seed"]),
         "cleanup_trial_artifacts": bool(settings["cleanup_trial_artifacts"]),
         "retrain_best": bool(settings["retrain_best"]),
+        "best_model_dir": (
+            str(best_model_dir).strip()
+            if best_model_dir is not None and str(best_model_dir).strip()
+            else ""
+        ),
         "search_space": {
             "ridge_alpha": {"min": alpha_min_v, "max": alpha_max_v, "log": True},
             "n_components": {
@@ -588,10 +594,13 @@ def run_shared_space_sweep(
     with open(best_trial_metrics_path, "w") as f:
         json.dump(best_metrics, f, indent=2)
 
-    final_model_dir = os.path.join(
-        str(config.get("output_root", "outputs")),
-        f"shared_space_best_{study_name_v}",
-    )
+    if best_model_dir is not None and str(best_model_dir).strip():
+        final_model_dir = str(best_model_dir).strip()
+    else:
+        final_model_dir = os.path.join(
+            str(config.get("output_root", "outputs")),
+            f"shared_space_best_{study_name_v}",
+        )
     retrained = False
     if bool(settings["retrain_best"]):
         train_fn(
@@ -654,6 +663,14 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--fixed-eval-size", type=int, default=None)
     parser.add_argument("--eval-split-seed", type=int, default=None)
     parser.add_argument("--output-root", default="")
+    parser.add_argument(
+        "--best-model-dir",
+        default="",
+        help=(
+            "Optional output directory for retraining with best params. "
+            "If omitted, defaults to outputs/shared_space_best_<study_name>."
+        ),
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
         "--no-cleanup-trial-artifacts",
@@ -689,6 +706,7 @@ if __name__ == "__main__":
         fixed_eval_size=args.fixed_eval_size,
         eval_split_seed=args.eval_split_seed,
         output_root=(args.output_root.strip() or None),
+        best_model_dir=(args.best_model_dir.strip() or None),
         cleanup_trial_artifacts=(False if args.no_cleanup_trial_artifacts else None),
         retrain_best=(False if args.no_retrain_best else None),
         dry_run=bool(args.dry_run),

@@ -75,21 +75,15 @@ def test_align_train_rows_stim_index_subset_and_reorder():
     assert info["rows_used"] == 4
 
 
-def test_align_train_rows_fallback_prefix_with_warning(caplog):
+def test_align_train_rows_mismatch_without_stim_indices_raises():
     train_matrix = np.arange(60, dtype=np.float32).reshape(12, 5)
     train_stim_idx = np.arange(12, dtype=np.int64)
     targets = np.arange(40, dtype=np.float32).reshape(8, 5)
 
-    with caplog.at_level(logging.WARNING):
-        x_aligned, y_aligned, info = _align_train_rows(
+    with pytest.raises(ValueError, match="no target stimulus indices were provided"):
+        _align_train_rows(
             train_matrix=train_matrix,
             train_stim_idx=train_stim_idx,
             train_targets=targets,
             label="CLIP-vision",
         )
-
-    np.testing.assert_array_equal(x_aligned, train_matrix[:8])
-    np.testing.assert_array_equal(y_aligned, targets)
-    assert info["mode"] == "prefix"
-    assert info["rows_used"] == 8
-    assert "Falling back to first 8 rows" in caplog.text

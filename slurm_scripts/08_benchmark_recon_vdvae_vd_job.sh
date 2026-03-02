@@ -17,21 +17,26 @@ LOG_DIR="${LOG_DIR:-${PROJECT_DIR}/slurm_logs}"
 CONDA_ENV="${CONDA_ENV:-resting-prediction}"
 
 TEST_SUBJECT="${TEST_SUBJECT:-7}"
+SUBJ_PADDED=$(printf "%02d" "${TEST_SUBJECT}")
 DATA_ROOT="${DATA_ROOT:-processed_data}"
 PREDICTION_DIR="${PREDICTION_DIR:-outputs/predictions}"
 ABLATION_DIR="${ABLATION_DIR:-outputs/ablations/fewshot}"
-BENCHMARK_OUTPUT_DIR="${BENCHMARK_OUTPUT_DIR:-outputs/reconstruction_benchmark_vdvae_vd/subj07}"
+BENCHMARK_OUTPUT_DIR="${BENCHMARK_OUTPUT_DIR:-outputs/reconstruction_benchmark_vdvae_vd/subj${SUBJ_PADDED}}"
 
-BRAIN_DIFFUSER_ROOT="${BRAIN_DIFFUSER_ROOT:-/home/rothermm/brain-diffuser}"
-SUBJ_PADDED=$(printf "%02d" "${TEST_SUBJECT}")
+RECON_MODEL_ROOT="${RECON_MODEL_ROOT:-/home/rothermm/brain-diffuser}"
+RECON_FEATURE_DIR="${RECON_FEATURE_DIR:-${DATA_ROOT}/reconstruction_features/subj${SUBJ_PADDED}}"
 
-VDVAE_FEATURE_NPZ="${VDVAE_FEATURE_NPZ:-${BRAIN_DIFFUSER_ROOT}/data/extracted_features/subj${SUBJ_PADDED}/nsd_vdvae_features_31l.npz}"
-VDVAE_REF_NPZ="${VDVAE_REF_NPZ:-${BRAIN_DIFFUSER_ROOT}/data/extracted_features/subj${SUBJ_PADDED}/ref_latents.npz}"
-CLIPTEXT_TRAIN_NPY="${CLIPTEXT_TRAIN_NPY:-${BRAIN_DIFFUSER_ROOT}/data/extracted_features/subj${SUBJ_PADDED}/nsd_cliptext_train.npy}"
-CLIPTEXT_TEST_NPY="${CLIPTEXT_TEST_NPY:-${BRAIN_DIFFUSER_ROOT}/data/extracted_features/subj${SUBJ_PADDED}/nsd_cliptext_test.npy}"
-CLIPVISION_TRAIN_NPY="${CLIPVISION_TRAIN_NPY:-${BRAIN_DIFFUSER_ROOT}/data/extracted_features/subj${SUBJ_PADDED}/nsd_clipvision_train.npy}"
-CLIPVISION_TEST_NPY="${CLIPVISION_TEST_NPY:-${BRAIN_DIFFUSER_ROOT}/data/extracted_features/subj${SUBJ_PADDED}/nsd_clipvision_test.npy}"
-VD_WEIGHTS_PATH="${VD_WEIGHTS_PATH:-${BRAIN_DIFFUSER_ROOT}/versatile_diffusion/pretrained/vd-four-flow-v1-0-fp16-deprecated.pth}"
+VDVAE_FEATURE_NPZ="${VDVAE_FEATURE_NPZ:-${RECON_FEATURE_DIR}/vdvae_features.npz}"
+VDVAE_REF_NPZ="${VDVAE_REF_NPZ:-${RECON_FEATURE_DIR}/ref_latents.npz}"
+CLIPTEXT_TRAIN_NPY="${CLIPTEXT_TRAIN_NPY:-${RECON_FEATURE_DIR}/cliptext_train.npy}"
+CLIPTEXT_TEST_NPY="${CLIPTEXT_TEST_NPY:-${RECON_FEATURE_DIR}/cliptext_test.npy}"
+CLIPVISION_TRAIN_NPY="${CLIPVISION_TRAIN_NPY:-${RECON_FEATURE_DIR}/clipvision_train.npy}"
+CLIPVISION_TEST_NPY="${CLIPVISION_TEST_NPY:-${RECON_FEATURE_DIR}/clipvision_test.npy}"
+CLIPTEXT_TRAIN_STIM_IDX_NPY="${CLIPTEXT_TRAIN_STIM_IDX_NPY:-}"
+CLIPTEXT_TEST_STIM_IDX_NPY="${CLIPTEXT_TEST_STIM_IDX_NPY:-}"
+CLIPVISION_TRAIN_STIM_IDX_NPY="${CLIPVISION_TRAIN_STIM_IDX_NPY:-}"
+CLIPVISION_TEST_STIM_IDX_NPY="${CLIPVISION_TEST_STIM_IDX_NPY:-}"
+VD_WEIGHTS_PATH="${VD_WEIGHTS_PATH:-${RECON_MODEL_ROOT}/versatile_diffusion/pretrained/vd-four-flow-v1-0-fp16-deprecated.pth}"
 
 TEST_IMAGES_NPY="${TEST_IMAGES_NPY:-}"
 TEST_IMAGES_DIR="${TEST_IMAGES_DIR:-}"
@@ -55,7 +60,21 @@ VD_GUIDANCE_SCALE="${VD_GUIDANCE_SCALE:-20.0}"
 VD_DDIM_STEPS="${VD_DDIM_STEPS:-50}"
 VD_DDIM_ETA="${VD_DDIM_ETA:-0.0}"
 N_PANELS="${N_PANELS:-20}"
-REUSE_PREDICTED_FEATURES="${REUSE_PREDICTED_FEATURES:-1}"
+REUSE_PREDICTED_FEATURES="${REUSE_PREDICTED_FEATURES:-0}"
+ALLOW_PARTIAL_EVAL_FEATURE_COVERAGE="${ALLOW_PARTIAL_EVAL_FEATURE_COVERAGE:-0}"
+
+if [[ -z "${CLIPTEXT_TRAIN_STIM_IDX_NPY}" && -f "${RECON_FEATURE_DIR}/cliptext_train_stim_idx.npy" ]]; then
+  CLIPTEXT_TRAIN_STIM_IDX_NPY="${RECON_FEATURE_DIR}/cliptext_train_stim_idx.npy"
+fi
+if [[ -z "${CLIPTEXT_TEST_STIM_IDX_NPY}" && -f "${RECON_FEATURE_DIR}/cliptext_test_stim_idx.npy" ]]; then
+  CLIPTEXT_TEST_STIM_IDX_NPY="${RECON_FEATURE_DIR}/cliptext_test_stim_idx.npy"
+fi
+if [[ -z "${CLIPVISION_TRAIN_STIM_IDX_NPY}" && -f "${RECON_FEATURE_DIR}/clipvision_train_stim_idx.npy" ]]; then
+  CLIPVISION_TRAIN_STIM_IDX_NPY="${RECON_FEATURE_DIR}/clipvision_train_stim_idx.npy"
+fi
+if [[ -z "${CLIPVISION_TEST_STIM_IDX_NPY}" && -f "${RECON_FEATURE_DIR}/clipvision_test_stim_idx.npy" ]]; then
+  CLIPVISION_TEST_STIM_IDX_NPY="${RECON_FEATURE_DIR}/clipvision_test_stim_idx.npy"
+fi
 
 mkdir -p "${LOG_DIR}"
 
@@ -68,13 +87,18 @@ echo "DATA_ROOT: ${DATA_ROOT}"
 echo "PREDICTION_DIR: ${PREDICTION_DIR}"
 echo "ABLATION_DIR: ${ABLATION_DIR}"
 echo "BENCHMARK_OUTPUT_DIR: ${BENCHMARK_OUTPUT_DIR}"
-echo "BRAIN_DIFFUSER_ROOT: ${BRAIN_DIFFUSER_ROOT}"
+echo "RECON_MODEL_ROOT: ${RECON_MODEL_ROOT}"
+echo "RECON_FEATURE_DIR: ${RECON_FEATURE_DIR}"
 echo "VDVAE_FEATURE_NPZ: ${VDVAE_FEATURE_NPZ}"
 echo "VDVAE_REF_NPZ: ${VDVAE_REF_NPZ}"
 echo "CLIPTEXT_TRAIN_NPY: ${CLIPTEXT_TRAIN_NPY}"
 echo "CLIPTEXT_TEST_NPY: ${CLIPTEXT_TEST_NPY}"
 echo "CLIPVISION_TRAIN_NPY: ${CLIPVISION_TRAIN_NPY}"
 echo "CLIPVISION_TEST_NPY: ${CLIPVISION_TEST_NPY}"
+echo "CLIPTEXT_TRAIN_STIM_IDX_NPY: ${CLIPTEXT_TRAIN_STIM_IDX_NPY:-<auto/fallback>}"
+echo "CLIPTEXT_TEST_STIM_IDX_NPY: ${CLIPTEXT_TEST_STIM_IDX_NPY:-<auto/fallback>}"
+echo "CLIPVISION_TRAIN_STIM_IDX_NPY: ${CLIPVISION_TRAIN_STIM_IDX_NPY:-<auto/fallback>}"
+echo "CLIPVISION_TEST_STIM_IDX_NPY: ${CLIPVISION_TEST_STIM_IDX_NPY:-<auto/fallback>}"
 echo "VD_WEIGHTS_PATH: ${VD_WEIGHTS_PATH}"
 echo "TEST_IMAGES_NPY: ${TEST_IMAGES_NPY:-<none>}"
 echo "TEST_IMAGES_DIR: ${TEST_IMAGES_DIR:-<none>}"
@@ -83,6 +107,7 @@ echo "FEWSHOT_SEED: ${FEWSHOT_SEED:-<auto>}"
 echo "DEVICE: ${DEVICE}"
 echo "PRECISION: ${PRECISION}"
 echo "REUSE_PREDICTED_FEATURES: ${REUSE_PREDICTED_FEATURES}"
+echo "ALLOW_PARTIAL_EVAL_FEATURE_COVERAGE: ${ALLOW_PARTIAL_EVAL_FEATURE_COVERAGE}"
 
 module purge
 module load miniconda
@@ -101,7 +126,7 @@ cmd=(
   --predictions-dir "${PREDICTION_DIR}"
   --ablation-dir "${ABLATION_DIR}"
   --output-dir "${BENCHMARK_OUTPUT_DIR}"
-  --brain-diffuser-root "${BRAIN_DIFFUSER_ROOT}"
+  --recon-model-root "${RECON_MODEL_ROOT}"
   --vdvae-feature-npz "${VDVAE_FEATURE_NPZ}"
   --vdvae-ref-npz "${VDVAE_REF_NPZ}"
   --cliptext-train-npy "${CLIPTEXT_TRAIN_NPY}"
@@ -142,8 +167,25 @@ if [[ -n "${FEWSHOT_SEED}" ]]; then
   cmd+=(--fewshot-seed "${FEWSHOT_SEED}")
 fi
 
+if [[ -n "${CLIPTEXT_TRAIN_STIM_IDX_NPY}" ]]; then
+  cmd+=(--cliptext-train-stim-idx "${CLIPTEXT_TRAIN_STIM_IDX_NPY}")
+fi
+if [[ -n "${CLIPTEXT_TEST_STIM_IDX_NPY}" ]]; then
+  cmd+=(--cliptext-test-stim-idx "${CLIPTEXT_TEST_STIM_IDX_NPY}")
+fi
+if [[ -n "${CLIPVISION_TRAIN_STIM_IDX_NPY}" ]]; then
+  cmd+=(--clipvision-train-stim-idx "${CLIPVISION_TRAIN_STIM_IDX_NPY}")
+fi
+if [[ -n "${CLIPVISION_TEST_STIM_IDX_NPY}" ]]; then
+  cmd+=(--clipvision-test-stim-idx "${CLIPVISION_TEST_STIM_IDX_NPY}")
+fi
+
 if [[ "${REUSE_PREDICTED_FEATURES}" == "1" ]]; then
   cmd+=(--reuse-predicted-features)
+fi
+
+if [[ "${ALLOW_PARTIAL_EVAL_FEATURE_COVERAGE}" == "1" ]]; then
+  cmd+=(--allow-partial-eval-feature-coverage)
 fi
 
 "${cmd[@]}" \
