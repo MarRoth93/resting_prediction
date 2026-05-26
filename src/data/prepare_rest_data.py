@@ -19,6 +19,8 @@ import nibabel as nib
 import numpy as np
 from scipy import signal
 
+from src.data.shared_paths import default_raw_data_root
+
 logger = logging.getLogger(__name__)
 
 
@@ -163,7 +165,7 @@ def preprocess_rest_run(
 
 def prepare_rest_data(
     sub: int,
-    data_root: str = ".",
+    data_root: str = default_raw_data_root(),
     output_root: str = "processed_data",
     config: dict | None = None,
 ) -> dict:
@@ -295,7 +297,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser(description="Prepare REST data for one subject")
     parser.add_argument("-sub", "--sub", type=int, required=True, choices=[1, 2, 3, 4, 5, 6, 7])
-    parser.add_argument("--data-root", default=".")
+    parser.add_argument("--data-root", default=default_raw_data_root())
     parser.add_argument("--output-root", default="processed_data")
     parser.add_argument("--config", default="config.yaml")
     args = parser.parse_args()

@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=rp_prepare_task
+#SBATCH --job-name=01_rp_prepare_task
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=128G
@@ -15,7 +15,7 @@ set -euo pipefail
 PROJECT_DIR="${PROJECT_DIR:-/home/rothermm/resting_prediction}"
 LOG_DIR="${LOG_DIR:-${PROJECT_DIR}/slurm_logs}"
 CONDA_ENV="${CONDA_ENV:-resting-prediction}"
-DATA_ROOT="${DATA_ROOT:-.}"
+DATA_ROOT="${DATA_ROOT:-/scratch_shared/rothermm/brain-diffuser/data}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-processed_data}"
 
 subjects=(1 2 3 4 5 6 7)

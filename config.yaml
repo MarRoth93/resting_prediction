@@ -5,6 +5,7 @@ subjects:
   train: [1, 2, 3, 4, 5, 6]
   test: [7]
 data_root: "."
+raw_data_root: "/scratch_shared/rothermm/brain-diffuser/data"
 output_root: "outputs"
 
 # Feature extraction
@@ -86,9 +87,9 @@ evaluation:
 # Hyperparameter sweeps
 sweep:
   shared_space:
-    study_name: "shared_space_optuna"
+    study_name: "shared_space_optuna_v2"
     output_dir: "outputs/hparam_sweeps/shared_space"
-    n_trials: 40
+    n_trials: 80
     timeout: null
     sampler_seed: 42
     cleanup_trial_artifacts: true
@@ -96,7 +97,7 @@ sweep:
     pruner:
       type: "median"          # median, none
       n_startup_trials: 5
-      n_warmup_steps: 2
+      n_warmup_steps: 5
       interval_steps: 1
     search_space:
       ridge_alpha:
@@ -105,5 +106,5 @@ sweep:
         log: true
       n_components:
         min: 20
-        max: 120
+        max: 200
         step: 5

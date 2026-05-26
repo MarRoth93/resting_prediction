@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=rp_benchmark_recon
+#SBATCH --job-name=07_rp_benchmark_recon
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G

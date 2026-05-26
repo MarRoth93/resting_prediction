@@ -357,7 +357,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--feature-types",
         default="",
-        help="Comma-separated feature backbones to sweep (e.g., clip,dinov2,clip_dinov2).",
+        help=(
+            "Comma-separated feature backbones to sweep (e.g., clip,dinov2,clip_dinov2). "
+            "When provided, the first backbone is used as the primary baseline feature."
+        ),
     )
     parser.add_argument("--disable-feature-sweep", action="store_true")
     parser.add_argument("--disable-fixed-eval-split", action="store_true")
@@ -396,11 +399,16 @@ if __name__ == "__main__":
     default_feature = str(config["features"]["type"])
     config_feature_types = eval_cfg.get("feature_backbones")
     cli_feature_types = [s.strip() for s in args.feature_types.split(",") if s.strip()]
-    feature_types = cli_feature_types
-    if not feature_types and isinstance(config_feature_types, list) and config_feature_types:
-        feature_types = [str(x) for x in config_feature_types]
-    if not feature_types:
-        feature_types = [default_feature]
+    if cli_feature_types:
+        feature_types = cli_feature_types
+        primary_feature = feature_types[0]
+    else:
+        feature_types: list[str] = []
+        if isinstance(config_feature_types, list) and config_feature_types:
+            feature_types = [str(x) for x in config_feature_types]
+        if not feature_types:
+            feature_types = [default_feature]
+        primary_feature = default_feature
 
     run_feature_sweep = (
         len(feature_types) > 1
@@ -411,10 +419,13 @@ if __name__ == "__main__":
         str(config.get("alignment", {}).get("connectivity_mode", "")).strip() == "parcellation"
     )
 
-    sweep_types = feature_types if default_feature in feature_types else [default_feature] + feature_types
+    if cli_feature_types:
+        sweep_types = feature_types
+    else:
+        sweep_types = feature_types if default_feature in feature_types else [default_feature] + feature_types
     model_dirs = _resolve_model_dirs(
         feature_types=sweep_types,
-        default_feature=default_feature,
+        default_feature=primary_feature,
         base_model_dir=args.model_dir,
         eval_cfg=eval_cfg,
     )
@@ -437,7 +448,6 @@ if __name__ == "__main__":
         reliability_thresholds=reliability_thresholds,
     )
 
-    primary_feature = default_feature
     primary_model_dir = model_dirs[primary_feature]
     _assert_model_artifacts(primary_feature, primary_model_dir)
     if require_parcellation_artifacts:

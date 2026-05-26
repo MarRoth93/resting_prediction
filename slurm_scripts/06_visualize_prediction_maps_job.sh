@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=rp_visualize_maps
+#SBATCH --job-name=06_rp_visualize_maps
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=32G

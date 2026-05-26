@@ -23,6 +23,7 @@ from typing import Any, Callable
 
 import numpy as np
 
+from src.data.shared_paths import default_raw_data_root
 from src.pipelines.predict_subject import predict_zero_shot
 from src.pipelines.train_shared_space import apply_config_overrides, load_config, train_pipeline
 
@@ -401,7 +402,7 @@ def run_shared_space_sweep(
     *,
     config_path: str = "config.yaml",
     data_root: str = "processed_data",
-    raw_data_root: str = ".",
+    raw_data_root: str = default_raw_data_root(),
     feature_type_override: str | None = None,
     n_trials: int | None = None,
     timeout: int | None = None,
@@ -648,7 +649,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--config", default="config.yaml")
     parser.add_argument("--data-root", default="processed_data")
-    parser.add_argument("--raw-data-root", default=".")
+    parser.add_argument("--raw-data-root", default=default_raw_data_root())
     parser.add_argument("--feature-type", default="")
     parser.add_argument("--n-trials", type=int, default=None)
     parser.add_argument("--timeout", type=int, default=None)
