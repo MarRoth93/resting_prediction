@@ -10,12 +10,15 @@ Refactored from prepare_nsddata.py with:
 
 import os
 import glob
+import json
 import logging
 from pathlib import Path
 
 import numpy as np
 import nibabel as nib
 import scipy.io as spio
+
+from src.data.shared_paths import default_raw_data_root
 
 logger = logging.getLogger(__name__)
 
@@ -71,10 +74,22 @@ def discover_sessions(betas_dir: str) -> list[int]:
     return sorted(sessions)
 
 
+def _ordered_stimulus_ids(sig_by_stim: dict[int, list[int]], stimulus_order: str) -> np.ndarray:
+    if stimulus_order == "sorted":
+        ordered = sorted(sig_by_stim.keys())
+    elif stimulus_order == "insertion":
+        ordered = list(sig_by_stim.keys())
+    else:
+        raise ValueError(f"Unsupported stimulus_order: {stimulus_order}")
+    return np.asarray(ordered, dtype=np.int64)
+
+
 def prepare_task_data(
     sub: int,
-    data_root: str = ".",
+    data_root: str = default_raw_data_root(),
     output_root: str = "processed_data",
+    max_sessions: int | None = None,
+    stimulus_order: str = "sorted",
 ) -> dict:
     """
     Prepare averaged task fMRI for one subject.
@@ -82,8 +97,8 @@ def prepare_task_data(
     Returns dict with:
         train_fmri: (N_train, V_sub) float32 — averaged betas per stimulus
         test_fmri: (N_test, V_sub) float32 — averaged betas per stimulus
-        train_stim_idx: (N_train,) int — NSD image indices, sorted
-        test_stim_idx: (N_test,) int — NSD image indices, sorted
+        train_stim_idx: (N_train,) int — NSD image indices in selected row order
+        test_stim_idx: (N_test,) int — NSD image indices in selected row order
         test_fmri_trials: (N_test_trials, V_sub) float32 — trial-level
         test_trial_labels: (N_test_trials,) int — stimulus ID per trial
         mask: (X, Y, Z) bool — nsdgeneral mask
@@ -108,6 +123,14 @@ def prepare_task_data(
 
     # Discover sessions dynamically
     sessions = discover_sessions(betas_dir)
+    if max_sessions is not None:
+        if max_sessions < 1:
+            raise ValueError(f"max_sessions must be >= 1, got {max_sessions}")
+        if max_sessions > len(sessions):
+            raise ValueError(
+                f"Requested max_sessions={max_sessions}, but only {len(sessions)} sessions exist."
+            )
+        sessions = sessions[:max_sessions]
     num_sessions = len(sessions)
     trials_per_session = 750
     num_trials = num_sessions * trials_per_session
@@ -124,9 +147,9 @@ def prepare_task_data(
         else:
             sig_test.setdefault(nsd_id, []).append(idx)
 
-    # Sort by NSD image ID for canonical ordering
-    train_stim_idx = np.array(sorted(sig_train.keys()), dtype=np.int64)
-    test_stim_idx = np.array(sorted(sig_test.keys()), dtype=np.int64)
+    # Preserve either canonical sorted order or Brain-Diffuser's first-seen order.
+    train_stim_idx = _ordered_stimulus_ids(sig_train, stimulus_order=stimulus_order)
+    test_stim_idx = _ordered_stimulus_ids(sig_test, stimulus_order=stimulus_order)
 
     logger.info(f"Subject {sub}: {len(train_stim_idx)} train stimuli, {len(test_stim_idx)} test stimuli")
 
@@ -168,6 +191,23 @@ def prepare_task_data(
     np.save(os.path.join(out_dir, "test_fmri_trials.npy"), test_fmri_trials)
     np.save(os.path.join(out_dir, "test_trial_labels.npy"), test_trial_labels)
     np.save(os.path.join(out_dir, "mask.npy"), mask)
+    with open(os.path.join(out_dir, "task_data_summary.json"), "w") as f:
+        json.dump(
+            {
+                "subject": int(sub),
+                "data_root": str(Path(data_root).resolve()),
+                "num_sessions": int(num_sessions),
+                "sessions_used": [int(s) for s in sessions],
+                "max_sessions": None if max_sessions is None else int(max_sessions),
+                "stimulus_order": str(stimulus_order),
+                "train_rows": int(train_fmri.shape[0]),
+                "test_rows": int(test_fmri.shape[0]),
+                "test_trial_rows": int(test_fmri_trials.shape[0]),
+                "num_voxels": int(num_voxels),
+            },
+            f,
+            indent=2,
+        )
 
     logger.info(f"Subject {sub}: saved to {out_dir}")
     logger.info(f"  train_fmri: {train_fmri.shape}, test_fmri: {test_fmri.shape}")
@@ -193,8 +233,21 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser(description="Prepare task data for one subject")
     parser.add_argument("-sub", "--sub", type=int, required=True, choices=[1, 2, 3, 4, 5, 6, 7])
-    parser.add_argument("--data-root", default=".")
+    parser.add_argument("--data-root", default=default_raw_data_root())
     parser.add_argument("--output-root", default="processed_data")
+    parser.add_argument("--max-sessions", type=int, default=None)
+    parser.add_argument(
+        "--stimulus-order",
+        choices=["sorted", "insertion"],
+        default="sorted",
+        help="Use 'insertion' to match Brain-Diffuser's first-seen row ordering.",
+    )
     args = parser.parse_args()
 
-    prepare_task_data(args.sub, args.data_root, args.output_root)
+    prepare_task_data(
+        args.sub,
+        args.data_root,
+        args.output_root,
+        max_sessions=args.max_sessions,
+        stimulus_order=args.stimulus_order,
+    )

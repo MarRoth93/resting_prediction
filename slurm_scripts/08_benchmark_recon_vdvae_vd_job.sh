@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=rp_benchmark_vdvae_vd
+#SBATCH --job-name=08_rp_benchmark_vdvae_vd
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=96G

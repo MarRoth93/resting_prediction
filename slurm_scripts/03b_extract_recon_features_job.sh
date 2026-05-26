@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=rp_extract_recon_features
+#SBATCH --job-name=03b_rp_extract_recon_features
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --gres=gpu:1
@@ -21,7 +21,8 @@ SUBJ_PADDED=$(printf "%02d" "${TEST_SUBJECT}")
 DATA_ROOT="${DATA_ROOT:-processed_data}"
 RECON_FEATURE_DIR="${RECON_FEATURE_DIR:-${DATA_ROOT}/reconstruction_features/subj${SUBJ_PADDED}}"
 RECON_MODEL_ROOT="${RECON_MODEL_ROOT:-/home/rothermm/brain-diffuser}"
-STIMULI_HDF5="${STIMULI_HDF5:-nsddata_stimuli/stimuli/nsd/nsd_stimuli.hdf5}"
+SHARED_RAW_ROOT="${SHARED_RAW_ROOT:-/scratch_shared/rothermm/brain-diffuser/data}"
+STIMULI_HDF5="${STIMULI_HDF5:-${SHARED_RAW_ROOT}/nsddata_stimuli/stimuli/nsd/nsd_stimuli.hdf5}"
 VD_WEIGHTS_PATH="${VD_WEIGHTS_PATH:-${RECON_MODEL_ROOT}/versatile_diffusion/pretrained/vd-four-flow-v1-0-fp16-deprecated.pth}"
 
 ANNOTS_NPY="${ANNOTS_NPY:-}"
@@ -33,10 +34,10 @@ SKIP_IF_EXISTS="${SKIP_IF_EXISTS:-1}"
 if [[ -z "${ANNOTS_NPY}" ]]; then
   if [[ -f "${PROJECT_DIR}/data/annots/COCO_73k_annots_curated.npy" ]]; then
     ANNOTS_NPY="${PROJECT_DIR}/data/annots/COCO_73k_annots_curated.npy"
-  elif [[ -f "${PROJECT_DIR}/nsddata/experiments/nsd/COCO_73k_annots_curated.npy" ]]; then
-    ANNOTS_NPY="${PROJECT_DIR}/nsddata/experiments/nsd/COCO_73k_annots_curated.npy"
-  elif [[ -f "/home/rothermm/brain-diffuser/data/annots/COCO_73k_annots_curated.npy" ]]; then
-    ANNOTS_NPY="/home/rothermm/brain-diffuser/data/annots/COCO_73k_annots_curated.npy"
+  elif [[ -f "${SHARED_RAW_ROOT}/annots/COCO_73k_annots_curated.npy" ]]; then
+    ANNOTS_NPY="${SHARED_RAW_ROOT}/annots/COCO_73k_annots_curated.npy"
+  elif [[ -f "${SHARED_RAW_ROOT}/nsddata/experiments/nsd/COCO_73k_annots_curated.npy" ]]; then
+    ANNOTS_NPY="${SHARED_RAW_ROOT}/nsddata/experiments/nsd/COCO_73k_annots_curated.npy"
   fi
 fi
 

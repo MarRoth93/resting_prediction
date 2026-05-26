@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=rp_predict_ablate
+#SBATCH --job-name=05_rp_predict_ablate
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
@@ -101,6 +101,7 @@ python -u -m src.pipelines.run_ablations \
   --config "${CONFIG_PATH}" \
   --model-dir "${MODEL_DIR}" \
   --data-root "${DATA_ROOT}" \
+  --feature-types "${FEATURE_TYPE}" \
   --output-dir "${ABLATION_DIR}" \
   2>&1 | tee "${LOG_DIR}/run_ablations_${SLURM_JOB_ID}.debug.log"
 status=${PIPESTATUS[0]}

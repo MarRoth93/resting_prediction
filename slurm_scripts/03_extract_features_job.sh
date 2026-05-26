@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=rp_extract_features
+#SBATCH --job-name=03_rp_extract_features
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --gres=gpu:1
@@ -15,7 +15,7 @@ set -euo pipefail
 PROJECT_DIR="${PROJECT_DIR:-/home/rothermm/resting_prediction}"
 LOG_DIR="${LOG_DIR:-${PROJECT_DIR}/slurm_logs}"
 CONDA_ENV="${CONDA_ENV:-resting-prediction}"
-STIMULI_PATH="${STIMULI_PATH:-nsddata_stimuli/stimuli/nsd/nsd_stimuli.hdf5}"
+STIMULI_PATH="${STIMULI_PATH:-/scratch_shared/rothermm/brain-diffuser/data/nsddata_stimuli/stimuli/nsd/nsd_stimuli.hdf5}"
 FEATURE_OUTPUT_DIR="${FEATURE_OUTPUT_DIR:-processed_data/features}"
 MODELS="${MODELS:-clip dinov2}"
 DEVICE="${DEVICE:-cuda}"

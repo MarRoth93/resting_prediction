@@ -4,6 +4,7 @@ import numpy as np
 import h5py
 import scipy.io as spio
 import nibabel as nib
+from pathlib import Path
 
 import argparse
 parser = argparse.ArgumentParser(description='Argument Parser')
@@ -11,6 +12,10 @@ parser.add_argument("-sub", "--sub",help="Subject Number",default=1)
 args = parser.parse_args()
 sub=int(args.sub)
 assert sub in [1,2,3,4,5,6,7]
+
+RAW_DATA_ROOT = Path(
+    os.environ.get("NSD_SHARED_DATA_ROOT", "/scratch_shared/rothermm/brain-diffuser/data")
+).expanduser().resolve()
 
 def loadmat(filename):
     '''
@@ -64,7 +69,7 @@ def loadmat(filename):
 
 
 
-stim_order_f = 'nsddata/experiments/nsd/nsd_expdesign.mat'
+stim_order_f = str(RAW_DATA_ROOT / 'nsddata/experiments/nsd/nsd_expdesign.mat')
 stim_order = loadmat(stim_order_f)
 
 
@@ -90,24 +95,24 @@ train_im_idx = list(sig_train.keys())
 test_im_idx = list(sig_test.keys())
 
 
-roi_dir = 'nsddata/ppdata/subj{:02d}/func1pt8mm/roi/'.format(sub)
-betas_dir = 'nsddata_betas/ppdata/subj{:02d}/func1pt8mm/betas_fithrf_GLMdenoise_RR/'.format(sub)
+roi_dir = str(RAW_DATA_ROOT / 'nsddata/ppdata/subj{:02d}/func1pt8mm/roi/'.format(sub))
+betas_dir = str(RAW_DATA_ROOT / 'nsddata_betas/ppdata/subj{:02d}/func1pt8mm/betas_fithrf_GLMdenoise_RR/'.format(sub))
 
 mask_filename = 'nsdgeneral.nii.gz'
-mask = nib.load(roi_dir+mask_filename).get_fdata()
+mask = nib.load(str(Path(roi_dir) / mask_filename)).get_fdata()
 num_voxel = mask[mask>0].shape[0]
 
 fmri = np.zeros((num_trials, num_voxel)).astype(np.float32)
 for i in range(37):
     beta_filename = "betas_session{0:02d}.nii.gz".format(i+1)
-    beta_f = nib.load(betas_dir+beta_filename).get_fdata().astype(np.float32)
+    beta_f = nib.load(str(Path(betas_dir) / beta_filename)).get_fdata().astype(np.float32)
     fmri[i*750:(i+1)*750] = beta_f[mask>0].transpose()
     del beta_f
     print(i)
     
 print("fMRI Data are loaded.")
 
-f_stim = h5py.File('nsddata_stimuli/stimuli/nsd/nsd_stimuli.hdf5', 'r')
+f_stim = h5py.File(str(RAW_DATA_ROOT / 'nsddata_stimuli/stimuli/nsd/nsd_stimuli.hdf5'), 'r')
 stim = f_stim['imgBrick'][:]
 
 print("Stimuli are loaded.")

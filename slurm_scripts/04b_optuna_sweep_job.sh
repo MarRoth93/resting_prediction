@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=rp_optuna_sweep
+#SBATCH --job-name=04b_rp_optuna_sweep
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=12
 #SBATCH --mem=128G
@@ -16,7 +16,7 @@ LOG_DIR="${LOG_DIR:-${PROJECT_DIR}/slurm_logs}"
 CONDA_ENV="${CONDA_ENV:-resting-prediction}"
 CONFIG_PATH="${CONFIG_PATH:-config.yaml}"
 DATA_ROOT="${DATA_ROOT:-processed_data}"
-RAW_DATA_ROOT="${RAW_DATA_ROOT:-.}"
+RAW_DATA_ROOT="${RAW_DATA_ROOT:-/scratch_shared/rothermm/brain-diffuser/data}"
 MODEL_DIR="${MODEL_DIR:-outputs/shared_space}"
 
 FEATURE_TYPE="${FEATURE_TYPE:-}"

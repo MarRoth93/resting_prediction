@@ -266,13 +266,6 @@ def _align_train_rows(
 ) -> tuple[np.ndarray, np.ndarray, dict[str, int | str]]:
     n_fmri = int(train_matrix.shape[0])
     n_target = int(train_targets.shape[0])
-    if n_target == n_fmri:
-        return (
-            train_matrix,
-            train_targets,
-            {"mode": "identity", "rows_used": n_target, "rows_requested": n_target},
-        )
-
     if target_train_stim_idx is not None:
         if len(target_train_stim_idx) != n_target:
             raise ValueError(
@@ -303,6 +296,13 @@ def _align_train_rows(
             train_matrix[mapped_rows[valid_mask]],
             train_targets[valid_mask],
             {"mode": "stim_index", "rows_used": n_valid, "rows_requested": n_target},
+        )
+
+    if n_target == n_fmri:
+        return (
+            train_matrix,
+            train_targets,
+            {"mode": "identity", "rows_used": n_target, "rows_requested": n_target},
         )
 
     raise ValueError(
@@ -616,8 +616,9 @@ def _load_versatile_components(
         from lib.model_zoo import get_model
         from lib.model_zoo.ddim_vd import DDIMSampler_VD
 
-    cfgm = model_cfg_bank()("vd_noema")
-    net = get_model()(cfgm)
+        # `model_cfg_bank` resolves config paths relative to cwd.
+        cfgm = model_cfg_bank()("vd_noema")
+        net = get_model()(cfgm)
     state = torch.load(vd_weights_path, map_location="cpu")
     net.load_state_dict(state, strict=False)
 
@@ -703,7 +704,10 @@ def _decode_versatile(
                 mixed_ratio=(1.0 - mixing),
             )
 
-            x = net.autokl_decode(z.to(device))
+            z = z.to(device)
+            if precision == "fp16":
+                z = z.half()
+            x = net.autokl_decode(z)
             x = torch.clamp((x + 1.0) / 2.0, min=0.0, max=1.0)
             out_img = tvtrans.ToPILImage()(x[0].float().cpu())
             out_img.save(out_dir / f"row{row:05d}_stim{stim}.png")
@@ -763,12 +767,12 @@ def run_benchmark(
 
     subj_dir = data_root / f"subj{test_sub:02d}"
     train_fmri = np.load(subj_dir / "train_fmri.npy").astype(np.float32)
-    train_stim_idx = _validate_sorted_unique_stim_idx(
+    train_stim_idx = _validate_unique_stim_idx(
         np.load(subj_dir / "train_stim_idx.npy").astype(np.int64),
         name=f"subj{test_sub:02d} train_stim_idx",
     )
     gt_test_fmri = np.load(subj_dir / "test_fmri.npy").astype(np.float32)
-    test_stim_idx = _validate_sorted_unique_stim_idx(
+    test_stim_idx = _validate_unique_stim_idx(
         np.load(subj_dir / "test_stim_idx.npy").astype(np.int64),
         name=f"subj{test_sub:02d} test_stim_idx",
     )

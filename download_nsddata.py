@@ -23,6 +23,7 @@ import os
 import re
 import subprocess
 import sys
+from pathlib import Path
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -30,6 +31,7 @@ logger = logging.getLogger(__name__)
 SUBJECTS = [1, 2, 3, 4, 5, 6, 7]
 S3_BASE = "s3://natural-scenes-dataset"
 AWS_SIGNED_REQUEST = False
+DEFAULT_OUTPUT_ROOT = Path(os.environ.get("NSD_SHARED_DATA_ROOT", "/scratch_shared/rothermm/brain-diffuser/data"))
 
 
 def run_cmd(cmd: str, description: str = "") -> bool:
@@ -476,12 +478,21 @@ def main():
         action="store_true",
         help="Use signed AWS requests (default is unsigned --no-sign-request)",
     )
+    parser.add_argument(
+        "--output-root",
+        default=str(DEFAULT_OUTPUT_ROOT),
+        help="Destination directory for raw NSD assets.",
+    )
     args = parser.parse_args()
     AWS_SIGNED_REQUEST = args.signed_request
+    output_root = Path(args.output_root).expanduser().resolve()
+    output_root.mkdir(parents=True, exist_ok=True)
+    os.chdir(output_root)
     logger.info(
         "AWS request mode: %s",
         "signed" if AWS_SIGNED_REQUEST else "unsigned (--no-sign-request)",
     )
+    logger.info("Raw NSD output root: %s", output_root)
 
     if args.only_rest:
         download_rest_timeseries()

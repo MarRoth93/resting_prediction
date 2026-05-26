@@ -31,6 +31,8 @@ import torch
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 
+from src.data.shared_paths import default_annotation_candidates, default_stimuli_hdf5
+
 logger = logging.getLogger(__name__)
 
 _VDVAE_LAYER_DIMS = np.array(
@@ -81,7 +83,7 @@ def _pushd(path: Path):
         os.chdir(prev)
 
 
-def _validate_sorted_unique_stim_idx(stim_idx: np.ndarray, label: str) -> np.ndarray:
+def _validate_unique_stim_idx(stim_idx: np.ndarray, label: str) -> np.ndarray:
     arr = np.asarray(stim_idx, dtype=np.int64).ravel()
     if arr.ndim != 1:
         raise ValueError(f"{label} must be 1D, got {arr.shape}.")
@@ -90,8 +92,6 @@ def _validate_sorted_unique_stim_idx(stim_idx: np.ndarray, label: str) -> np.nda
     unique = np.unique(arr)
     if unique.size != arr.size:
         raise ValueError(f"{label} contains duplicates.")
-    if not np.array_equal(unique, arr):
-        raise ValueError(f"{label} must be sorted ascending.")
     return arr
 
 
@@ -109,13 +109,7 @@ def _resolve_annots_path(explicit_path: Path | None) -> Path:
     candidates: list[Path] = []
     if explicit_path is not None:
         candidates.append(explicit_path)
-    candidates.extend(
-        [
-            Path("data/annots/COCO_73k_annots_curated.npy"),
-            Path("nsddata/experiments/nsd/COCO_73k_annots_curated.npy"),
-            Path("/home/rothermm/brain-diffuser/data/annots/COCO_73k_annots_curated.npy"),
-        ]
-    )
+    candidates.extend(default_annotation_candidates())
     for p in candidates:
         if p.exists():
             return p
@@ -258,8 +252,10 @@ def _load_vd_model(
         from lib.cfg_helper import model_cfg_bank
         from lib.model_zoo import get_model
 
-    cfgm = model_cfg_bank()("vd_noema")
-    net = get_model()(cfgm)
+        # Versatile Diffusion config helper resolves YAML paths relative to CWD.
+        # Build the config/model while cwd is model_root so paths resolve correctly.
+        cfgm = model_cfg_bank()("vd_noema")
+        net = get_model()(cfgm)
     state = torch.load(weights_path, map_location="cpu")
     net.load_state_dict(state, strict=False)
 
@@ -468,11 +464,11 @@ def prepare_reconstruction_features(
         logger.info("All reconstruction feature outputs already exist in %s; skipping.", output_dir)
         return
 
-    train_stim_idx = _validate_sorted_unique_stim_idx(
+    train_stim_idx = _validate_unique_stim_idx(
         np.load(subj_dir / "train_stim_idx.npy"),
         label=f"subj{sub:02d} train_stim_idx",
     )
-    test_stim_idx = _validate_sorted_unique_stim_idx(
+    test_stim_idx = _validate_unique_stim_idx(
         np.load(subj_dir / "test_stim_idx.npy"),
         label=f"subj{sub:02d} test_stim_idx",
     )
@@ -621,7 +617,7 @@ if __name__ == "__main__":
     parser.add_argument("--subject", type=int, required=True)
     parser.add_argument("--data-root", default="processed_data")
     parser.add_argument("--output-dir", default="")
-    parser.add_argument("--stimuli-hdf5", default="nsddata_stimuli/stimuli/nsd/nsd_stimuli.hdf5")
+    parser.add_argument("--stimuli-hdf5", default=default_stimuli_hdf5())
     parser.add_argument("--recon-model-root", default="/home/rothermm/brain-diffuser")
     parser.add_argument(
         "--vd-weights-path",

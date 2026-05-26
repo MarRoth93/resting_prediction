@@ -14,6 +14,8 @@ from collections import Counter
 import nibabel as nib
 import numpy as np
 
+from src.data.shared_paths import default_raw_data_root
+
 logger = logging.getLogger(__name__)
 
 # NSD-provided ROI files available per subject in func1pt8mm/roi/
@@ -31,7 +33,7 @@ ROI_FILES = {
 def load_atlas(
     sub: int,
     atlas_type: str = "kastner",
-    data_root: str = ".",
+    data_root: str = default_raw_data_root(),
 ) -> np.ndarray:
     """
     Load atlas parcellation for a subject in native func1pt8mm space.

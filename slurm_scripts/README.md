@@ -19,6 +19,7 @@ These scripts follow your existing server pattern:
 - `06_visualize_prediction_maps_job.sh`: render side-by-side GT vs zero-shot vs best few-shot maps
 - `07_benchmark_recon_job.sh`: reconstruct GT/zero/few-shot conditions via SDXL-VAE latent pipeline
 - `08_benchmark_recon_vdvae_vd_job.sh`: reconstruct GT/zero/few-shot conditions via VDVAE + Versatile Diffusion pipeline
+- `09_compare_gt_recon_ab_job.sh`: A/B compare subject-level GT-fMRI reconstructions for two task-data definitions (default: current prep vs Brain-Diffuser-compatible 37-session prep)
 - `submit_full_pipeline.sh`: submits the full dependency chain
   - default chain includes `01/02/03` (parallel) + `03b`, then `04b -> 05`, then `06` and `08`
   - `07` (SDXL benchmark) is skipped by default; enable with `RUN_BENCHMARK_SDXL=1`
@@ -56,6 +57,7 @@ Common overrides:
 - `VIS_OUTPUT_DIR`, `TEST_SUBJECT`, `N_EXAMPLES`, `EXAMPLE_MODE`, `EXAMPLE_SEED`
 - `BENCHMARK_OUTPUT_DIR`, `SDXL_FEATURE_NPZ`, `SDXL_REF_NPZ`, `TEST_IMAGES_NPY`, `TEST_IMAGES_DIR`
 - `RECON_MODEL_ROOT`, `RECON_FEATURE_DIR`, `VDVAE_FEATURE_NPZ`, `VDVAE_REF_NPZ`, `CLIPTEXT_TRAIN_NPY`, `CLIPTEXT_TEST_NPY`, `CLIPVISION_TRAIN_NPY`, `CLIPVISION_TEST_NPY`, `CLIPTEXT_TRAIN_STIM_IDX_NPY`, `CLIPTEXT_TEST_STIM_IDX_NPY`, `CLIPVISION_TRAIN_STIM_IDX_NPY`, `CLIPVISION_TEST_STIM_IDX_NPY`, `VD_WEIGHTS_PATH`, `ALLOW_PARTIAL_EVAL_FEATURE_COVERAGE`
+- `AB_ROOT`, `DATA_ROOT_A`, `DATA_ROOT_B`, `RECON_FEATURE_DIR_A`, `RECON_FEATURE_DIR_B`, `GT_RECON_DIR_A`, `GT_RECON_DIR_B`, `COMPARE_DIR`, `LABEL_A`, `LABEL_B`
 - `RUN_BENCHMARK_VDVAE_VD`, `RUN_EXTRACT_RECON_FEATURES`, `RUN_BENCHMARK_SDXL`, `RUN_VISUALIZE`, `RUN_OPTUNA_SWEEP`
 - `MODEL_DIR`
 - `STIMULI_HDF5`, `ANNOTS_NPY`, `VDVAE_BATCH_SIZE`, `CLIPVISION_BATCH_SIZE`, `SKIP_IF_EXISTS`
@@ -70,6 +72,8 @@ For `08_benchmark_recon_vdvae_vd_job.sh`, the default local feature contract is:
 
 `03b_extract_recon_features_job.sh` produces the above contract under:
 - `${DATA_ROOT}/reconstruction_features/subjXX`
+
+`09_compare_gt_recon_ab_job.sh` is intentionally GT-only. It compares reconstruction quality under two task-data definitions without re-running the full zero-shot/few-shot prediction stack, which would need to be regenerated for a Brain-Diffuser-compatible test-set definition.
 
 `04b_optuna_sweep_job.sh` now sweeps all configured feature backbones (unless `FEATURE_TYPE` is set),
 and retrains each best model directly into:

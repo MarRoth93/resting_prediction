@@ -21,6 +21,7 @@ from src.data.load_atlas import (
     parcel_qc,
 )
 from src.data.nsd_loader import NSDFeatures, NSDSubjectData
+from src.data.shared_paths import default_raw_data_root
 from src.models.encoding import SharedSpaceEncoder
 
 logger = logging.getLogger(__name__)
@@ -193,7 +194,7 @@ def _build_shared_stimulus_intersection(
 def train_pipeline(
     config_path: str = "config.yaml",
     data_root: str = "processed_data",
-    raw_data_root: str = ".",
+    raw_data_root: str = default_raw_data_root(),
     output_dir: str = "outputs/shared_space",
     feature_type_override: str | None = None,
     config_overrides: dict | None = None,
@@ -453,7 +454,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train shared space model")
     parser.add_argument("--config", default="config.yaml")
     parser.add_argument("--data-root", default="processed_data")
-    parser.add_argument("--raw-data-root", default=".")
+    parser.add_argument("--raw-data-root", default=default_raw_data_root())
     parser.add_argument("--output-dir", default="outputs/shared_space")
     parser.add_argument(
         "--feature-type",

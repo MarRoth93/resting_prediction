@@ -12,6 +12,8 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
+from src.data.shared_paths import default_stimuli_hdf5
+
 logger = logging.getLogger(__name__)
 
 
@@ -137,7 +139,7 @@ def extract_dinov2_features(
 
 
 def extract_all_features(
-    stimuli_path: str = "nsddata_stimuli/stimuli/nsd/nsd_stimuli.hdf5",
+    stimuli_path: str = default_stimuli_hdf5(),
     output_dir: str = "processed_data/features",
     models: list[str] | None = None,
     device: str = "cuda",
@@ -168,7 +170,7 @@ if __name__ == "__main__":
 
     logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser(description="Extract stimulus features")
-    parser.add_argument("--stimuli", default="nsddata_stimuli/stimuli/nsd/nsd_stimuli.hdf5")
+    parser.add_argument("--stimuli", default=default_stimuli_hdf5())
     parser.add_argument("--output-dir", default="processed_data/features")
     parser.add_argument("--models", nargs="+", default=["clip", "dinov2"])
     parser.add_argument("--device", default="cuda")

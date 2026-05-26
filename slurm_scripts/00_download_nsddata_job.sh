@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=rp_download_nsd
+#SBATCH --job-name=00_rp_download_nsd
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=64G
