@@ -19,6 +19,7 @@ import nibabel as nib
 import numpy as np
 from scipy import signal
 
+from src.data.load_atlas import build_analysis_mask
 from src.data.shared_paths import default_raw_data_root
 
 logger = logging.getLogger(__name__)
@@ -188,6 +189,11 @@ def prepare_rest_data(
             "zscore": True,
             "min_usable_trs": 100,
         }
+    analysis_mask_config = config.get("analysis_mask", {}) or {}
+    analysis_mask_mode = str(analysis_mask_config.get("mode", "nsdgeneral"))
+    atlas_type = str(analysis_mask_config.get("atlas_type", "combined_rois"))
+    common_label_subjects = analysis_mask_config.get("common_label_subjects")
+    min_voxels_per_parcel = int(analysis_mask_config.get("min_voxels_per_parcel", 10))
 
     roi_dir = os.path.join(data_root, f"nsddata/ppdata/subj{sub:02d}/func1pt8mm/roi/")
     ts_dir = os.path.join(data_root, f"nsddata_timeseries/ppdata/subj{sub:02d}/func1pt8mm/timeseries/")
@@ -219,8 +225,18 @@ def prepare_rest_data(
             f"Checked: {ts_dir}"
         )
 
-    # Load mask
-    mask = nib.load(os.path.join(roi_dir, "nsdgeneral.nii.gz")).get_fdata() > 0
+    # Load mask. By default this is exactly nsdgeneral; optionally restrict to
+    # nsdgeneral voxels that are labeled by the configured atlas.
+    nsdgeneral_mask = nib.load(os.path.join(roi_dir, "nsdgeneral.nii.gz")).get_fdata() > 0
+    mask, mask_summary = build_analysis_mask(
+        sub=sub,
+        nsdgeneral_mask=nsdgeneral_mask,
+        mode=analysis_mask_mode,
+        atlas_type=atlas_type,
+        data_root=data_root,
+        common_label_subjects=common_label_subjects,
+        min_voxels_per_parcel=min_voxels_per_parcel,
+    )
     num_voxels = int(mask.sum())
 
     # Process each run
@@ -281,6 +297,8 @@ def prepare_rest_data(
         )
 
     logger.info(f"Subject {sub}: {len(rest_runs)} REST runs, {total_trs} total TRs, {num_voxels} voxels")
+    with open(os.path.join(out_dir, "rest_analysis_mask_summary.json"), "w") as f:
+        json.dump(mask_summary, f, indent=2)
 
     return {
         "rest_runs": rest_runs,
@@ -305,6 +323,32 @@ if __name__ == "__main__":
     cfg = {}
     if os.path.exists(args.config):
         with open(args.config) as f:
-            cfg = yaml.safe_load(f).get("rest_preprocessing", {})
+            full_cfg = yaml.safe_load(f) or {}
+            cfg = full_cfg.get("rest_preprocessing", {}) or {}
+            mask_cfg = full_cfg.get("analysis_mask", {}) or {}
+            if mask_cfg:
+                alignment_cfg = full_cfg.get("alignment", {}) or {}
+                subject_cfg = full_cfg.get("subjects", {}) or {}
+                common_label_subjects = None
+                if bool(mask_cfg.get("use_common_labels", True)):
+                    common_label_subjects = (
+                        list(subject_cfg.get("train", [])) + list(subject_cfg.get("test", []))
+                    )
+                    if not common_label_subjects:
+                        common_label_subjects = None
+                cfg["analysis_mask"] = {
+                    "mode": mask_cfg.get("mode", "nsdgeneral"),
+                    "atlas_type": mask_cfg.get(
+                        "atlas_type",
+                        alignment_cfg.get("atlas_type", "combined_rois"),
+                    ),
+                    "common_label_subjects": common_label_subjects,
+                    "min_voxels_per_parcel": int(
+                        mask_cfg.get(
+                            "min_voxels_per_parcel",
+                            alignment_cfg.get("min_voxels_per_parcel", 10),
+                        )
+                    ),
+                }
 
     prepare_rest_data(args.sub, args.data_root, args.output_root, cfg)

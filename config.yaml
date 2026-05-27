@@ -8,6 +8,16 @@ data_root: "."
 raw_data_root: "/scratch_shared/rothermm/brain-diffuser/data"
 output_root: "outputs"
 
+# Analysis mask
+# mode:
+#   nsdgeneral: keep all voxels in NSD's nsdgeneral mask (default/current behavior)
+#   atlas_labeled_only: keep only nsdgeneral voxels with common nonzero atlas labels
+# atlas_type is used only for atlas_labeled_only and must match alignment.atlas_type.
+analysis_mask:
+  mode: "nsdgeneral"
+  atlas_type: "combined_rois"
+  use_common_labels: true
+
 # Feature extraction
 features:
   type: "clip"  # clip, dinov2, clip_dinov2, vgg16

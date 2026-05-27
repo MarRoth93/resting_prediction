@@ -215,6 +215,55 @@ Common variables:
 - `TEST_SUBJECT`
 - `FEATURE_TYPE`
 
+## A/B Analysis Mask Runs
+
+By default, preprocessing keeps all voxels in NSD's `nsdgeneral` mask:
+
+```yaml
+analysis_mask:
+  mode: "nsdgeneral"
+```
+
+To test the stricter parcel-consistent variant, use:
+
+```yaml
+analysis_mask:
+  mode: "atlas_labeled_only"
+  atlas_type: "combined_rois"
+  use_common_labels: true
+```
+
+With `use_common_labels: true`, preprocessing keeps only `nsdgeneral` voxels whose atlas labels survive the same cross-subject common-label policy used by shared-space training.
+
+Run A/B variants into separate folders, for example:
+
+```bash
+OUTPUT_ROOT=processed_data_nsdgeneral \
+DATA_ROOT=processed_data_nsdgeneral \
+MODEL_DIR=outputs/shared_space_nsdgeneral \
+PREDICTION_DIR=outputs/predictions_nsdgeneral \
+ABLATION_DIR=outputs/ablations_nsdgeneral \
+bash /home/rothermm/resting_prediction/slurm_scripts/submit_full_pipeline.sh
+```
+
+and for the labeled-only config:
+
+```bash
+CONFIG_PATH=config_labeled_only.yaml \
+OUTPUT_ROOT=processed_data_labeled_only \
+DATA_ROOT=processed_data_labeled_only \
+MODEL_DIR=outputs/shared_space_labeled_only \
+PREDICTION_DIR=outputs/predictions_labeled_only \
+ABLATION_DIR=outputs/ablations_labeled_only \
+bash /home/rothermm/resting_prediction/slurm_scripts/submit_full_pipeline.sh
+```
+
+Prediction metrics include atlas split summaries such as:
+- `atlas_labeled_n_voxels`
+- `atlas_labeled_median_r`
+- `atlas_unlabeled_n_voxels`
+- `atlas_unlabeled_median_r`
+
 ## Where To Look After A Run
 
 Logs:

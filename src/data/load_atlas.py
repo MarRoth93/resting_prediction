@@ -128,6 +128,106 @@ def get_atlas_within_mask(
     return atlas[mask > 0].astype(np.int32)
 
 
+def build_analysis_mask(
+    sub: int,
+    nsdgeneral_mask: np.ndarray,
+    mode: str = "nsdgeneral",
+    atlas_type: str = "combined_rois",
+    data_root: str = default_raw_data_root(),
+    common_label_subjects: list[int] | None = None,
+    min_voxels_per_parcel: int = 10,
+) -> tuple[np.ndarray, dict]:
+    """
+    Build the voxel mask used by task and REST preprocessing.
+
+    Modes:
+    - nsdgeneral / nsdgeneral_all: keep all voxels in NSD's nsdgeneral mask.
+    - atlas_labeled_only: keep only nsdgeneral voxels with a nonzero atlas label.
+      If common_label_subjects is provided, keep only labels present in all of
+      those subjects with >= min_voxels_per_parcel voxels. This mirrors the
+      alignment harmonization policy and is the recommended A/B-test mode.
+
+    The second mode is useful for A/B tests where every modeled voxel should
+    participate in the parcel system used for REST connectivity.
+    """
+    mode = str(mode).strip().lower()
+    nsdgeneral_mask = np.asarray(nsdgeneral_mask).astype(bool)
+    n_nsdgeneral = int(nsdgeneral_mask.sum())
+
+    if mode in {"nsdgeneral", "nsdgeneral_all"}:
+        return nsdgeneral_mask, {
+            "subject": int(sub),
+            "mode": mode,
+            "atlas_type": None,
+            "nsdgeneral_voxels": n_nsdgeneral,
+            "analysis_voxels": n_nsdgeneral,
+            "dropped_unlabeled_voxels": 0,
+            "labeled_fraction_within_nsdgeneral": None,
+        }
+
+    if mode != "atlas_labeled_only":
+        raise ValueError(
+            f"Unknown analysis mask mode: {mode}. "
+            "Use 'nsdgeneral' or 'atlas_labeled_only'."
+        )
+
+    atlas = load_atlas(sub, atlas_type=atlas_type, data_root=data_root)
+    common_labels: list[int] | None = None
+    if common_label_subjects:
+        per_subject_labels = []
+        for s in common_label_subjects:
+            s_atlas = load_atlas(int(s), atlas_type=atlas_type, data_root=data_root)
+            roi_dir = os.path.join(data_root, f"nsddata/ppdata/subj{int(s):02d}/func1pt8mm/roi/")
+            s_mask = nib.load(os.path.join(roi_dir, "nsdgeneral.nii.gz")).get_fdata() > 0
+            labels = s_atlas[s_mask].astype(np.int32)
+            counts = Counter(labels[labels > 0])
+            valid = {int(lbl) for lbl, cnt in counts.items() if cnt >= min_voxels_per_parcel}
+            per_subject_labels.append(valid)
+        common_labels = [int(lbl) for lbl in sorted(set.intersection(*per_subject_labels))]
+        if not common_labels:
+            raise ValueError(
+                f"atlas_labeled_only found zero common labels for subjects "
+                f"{common_label_subjects} with atlas_type={atlas_type}."
+            )
+        labeled_within_nsdgeneral = nsdgeneral_mask & np.isin(atlas, common_labels)
+    else:
+        labeled_within_nsdgeneral = nsdgeneral_mask & (atlas > 0)
+    n_labeled = int(labeled_within_nsdgeneral.sum())
+    if n_labeled == 0:
+        raise ValueError(
+            f"Subject {sub}: atlas_labeled_only produced zero voxels "
+            f"for atlas_type={atlas_type}."
+        )
+
+    dropped = int(n_nsdgeneral - n_labeled)
+    labeled_fraction = float(n_labeled / n_nsdgeneral) if n_nsdgeneral > 0 else 0.0
+    logger.info(
+        "Subject %d: analysis_mask=%s keeps %d/%d nsdgeneral voxels "
+        "(dropped %d unlabeled, atlas=%s)",
+        sub,
+        mode,
+        n_labeled,
+        n_nsdgeneral,
+        dropped,
+        atlas_type,
+    )
+    return labeled_within_nsdgeneral, {
+        "subject": int(sub),
+        "mode": mode,
+        "atlas_type": str(atlas_type),
+        "common_label_subjects": (
+            [int(s) for s in common_label_subjects] if common_label_subjects else None
+        ),
+        "n_common_labels": None if common_labels is None else int(len(common_labels)),
+        "common_labels": common_labels,
+        "min_voxels_per_parcel": int(min_voxels_per_parcel),
+        "nsdgeneral_voxels": n_nsdgeneral,
+        "analysis_voxels": n_labeled,
+        "dropped_unlabeled_voxels": dropped,
+        "labeled_fraction_within_nsdgeneral": labeled_fraction,
+    }
+
+
 def harmonize_atlas_labels(
     atlas_maps: dict[int, np.ndarray],
     masks: dict[int, np.ndarray],

@@ -138,6 +138,42 @@ def _compute_noise_ceiling_and_reliability_metrics(
     return out
 
 
+def _atlas_label_split_metrics(
+    voxel_corrs: np.ndarray,
+    atlas_masked: np.ndarray | None,
+) -> dict:
+    """
+    Summarize voxelwise performance for atlas-labeled and unlabeled voxels.
+
+    This supports the nsdgeneral-vs-atlas-labeled A/B check: in the default
+    nsdgeneral mode, unlabeled voxels can still be modeled, but they should be
+    reported separately from voxels that participate in the parcel system.
+    """
+    if atlas_masked is None:
+        return {}
+    atlas_masked = np.asarray(atlas_masked)
+    if atlas_masked.shape[0] != voxel_corrs.shape[0]:
+        raise ValueError(
+            f"Atlas/correlation length mismatch: atlas={atlas_masked.shape[0]}, "
+            f"voxel_corrs={voxel_corrs.shape[0]}."
+        )
+
+    out: dict[str, float | int] = {}
+    groups = {
+        "atlas_labeled": atlas_masked > 0,
+        "atlas_unlabeled": atlas_masked == 0,
+    }
+    for name, mask in groups.items():
+        n_voxels = int(mask.sum())
+        out[f"{name}_n_voxels"] = n_voxels
+        if n_voxels == 0:
+            continue
+        vals = voxel_corrs[mask]
+        out[f"{name}_median_r"] = float(np.median(vals))
+        out[f"{name}_mean_r"] = float(np.mean(vals))
+    return out
+
+
 def _load_parcellation_artifacts(
     builder: SharedSpaceBuilder,
     test_subj: NSDSubjectData,
@@ -379,6 +415,7 @@ def predict_zero_shot(
             "atlas_n_parcels_present": int(atlas_summary["n_parcels_present"]),
             "atlas_n_parcels_expected": int(atlas_summary["n_parcels_expected"]),
         })
+    metrics.update(_atlas_label_split_metrics(voxel_corrs, atlas_masked))
 
     metrics.update(
         _compute_noise_ceiling_and_reliability_metrics(
@@ -563,6 +600,7 @@ def predict_few_shot(
             "atlas_n_parcels_present": int(atlas_summary["n_parcels_present"]),
             "atlas_n_parcels_expected": int(atlas_summary["n_parcels_expected"]),
         })
+    metrics.update(_atlas_label_split_metrics(voxel_corrs, atlas_masked))
     metrics.update(
         _compute_noise_ceiling_and_reliability_metrics(
             subject=test_subj,
