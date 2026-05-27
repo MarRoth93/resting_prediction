@@ -39,7 +39,13 @@ rest_preprocessing:
     enabled: true
     fd_threshold_mm: 0.5
     max_censored_fraction: 0.3  # exclude run if > 30% censored
-  nuisance_regression: false
+  nuisance_regression:
+    enabled: false
+    # Requires NSD motion files under nsddata_timeseries/ppdata/subjXX/func1pt8mm/motion/.
+    # Options: none, motion6, motion12, friston24.
+    motion_model: "none"
+    standardize: true
+    require_motion: false
   zscore: true
   min_usable_trs: 100  # minimum total TRs across all runs per subject
 

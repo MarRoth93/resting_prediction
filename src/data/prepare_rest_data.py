@@ -13,6 +13,7 @@ Preprocessing pipeline per run:
 import json
 import logging
 import os
+import re
 from pathlib import Path
 
 import nibabel as nib
@@ -54,6 +55,163 @@ def compute_framewise_displacement(motion_params: np.ndarray) -> np.ndarray:
     fd = np.abs(diff).sum(axis=1)
     # First TR has no displacement
     return np.concatenate([[0.0], fd])
+
+
+def _extract_session_run_key(filename: str) -> tuple[int | None, int | None]:
+    """
+    Extract session/run IDs from NSD-style filenames when present.
+
+    Supports names such as timeseries_session40_run01.nii.gz and
+    motion_40_run01.tsv. Returns None for fields that cannot be inferred.
+    """
+    base = os.path.basename(filename)
+    sess = None
+    run = None
+
+    sess_match = re.search(r"session[_-]?(\d+)", base, flags=re.IGNORECASE)
+    if sess_match:
+        sess = int(sess_match.group(1))
+    run_match = re.search(r"run[_-]?(\d+)", base, flags=re.IGNORECASE)
+    if run_match:
+        run = int(run_match.group(1))
+
+    if sess is None:
+        # NSD manual documents motion_BB_runCC.tsv, where BB is the session.
+        m = re.search(r"motion[_-]?(\d+)[_-]run[_-]?(\d+)", base, flags=re.IGNORECASE)
+        if m:
+            sess = int(m.group(1))
+            run = int(m.group(2))
+
+    return sess, run
+
+
+def find_motion_file(rest_file: str, motion_dir: str) -> str | None:
+    """Find the NSD motion TSV matching a REST timeseries file."""
+    if not os.path.exists(motion_dir):
+        return None
+
+    sess, run = _extract_session_run_key(rest_file)
+    candidates: list[str] = []
+    if sess is not None and run is not None:
+        candidates.extend([
+            f"motion_session{sess:02d}_run{run:02d}.tsv",
+            f"motion_session{sess}_run{run}.tsv",
+            f"motion_{sess:02d}_run{run:02d}.tsv",
+            f"motion_{sess}_run{run}.tsv",
+        ])
+    if run is not None:
+        candidates.extend([
+            f"motion_run{run:02d}.tsv",
+            f"motion_run{run}.tsv",
+        ])
+
+    for candidate in candidates:
+        path = os.path.join(motion_dir, candidate)
+        if os.path.exists(path):
+            return path
+
+    files = sorted(
+        f for f in os.listdir(motion_dir)
+        if f.lower().endswith((".tsv", ".txt")) and "motion" in f.lower()
+    )
+    if sess is not None and run is not None:
+        matches = [
+            f for f in files
+            if re.search(fr"(session[_-]?{sess:02d}|session[_-]?{sess}\b|motion[_-]?{sess:02d}|motion[_-]?{sess}\b)", f, flags=re.IGNORECASE)
+            and re.search(fr"run[_-]?0*{run}\b", f, flags=re.IGNORECASE)
+        ]
+        if len(matches) == 1:
+            return os.path.join(motion_dir, matches[0])
+        if len(matches) > 1:
+            logger.warning("Multiple motion files match %s: %s", rest_file, matches)
+            return None
+
+    if run is not None:
+        matches = [
+            f for f in files
+            if re.search(fr"run[_-]?0*{run}\b", f, flags=re.IGNORECASE)
+        ]
+        if len(matches) == 1:
+            return os.path.join(motion_dir, matches[0])
+        if len(matches) > 1:
+            logger.warning(
+                "Multiple run-only motion files match %s; need session in filename: %s",
+                rest_file,
+                matches,
+            )
+    return None
+
+
+def load_motion_params(path: str, expected_trs: int | None = None) -> np.ndarray:
+    """Load NSD 6-parameter motion file as (T, 6) float32."""
+    try:
+        arr = np.loadtxt(path, dtype=np.float32, ndmin=2)
+    except ValueError:
+        arr = np.genfromtxt(path, dtype=np.float32, skip_header=1)
+        if arr.ndim == 1:
+            arr = arr[None, :]
+
+    if arr.ndim != 2 or arr.shape[1] < 6:
+        raise ValueError(f"Motion file must have at least 6 columns, got {arr.shape}: {path}")
+    arr = arr[:, :6].astype(np.float32, copy=False)
+    if expected_trs is not None and arr.shape[0] != expected_trs:
+        raise ValueError(
+            f"Motion rows do not match timeseries TRs for {path}: "
+            f"motion={arr.shape[0]}, timeseries={expected_trs}"
+        )
+    if np.any(~np.isfinite(arr)):
+        raise ValueError(f"Motion file contains NaN/Inf values: {path}")
+    return arr
+
+
+def build_motion_confounds(
+    motion_params: np.ndarray,
+    model: str = "friston24",
+    standardize: bool = True,
+) -> np.ndarray:
+    """
+    Build motion nuisance regressors from 6 rigid-body parameters.
+
+    Supported models:
+    - motion6: original 6 parameters
+    - motion12: original 6 + temporal derivatives
+    - friston24: motion12 + squared original and derivative terms
+    """
+    model = str(model).strip().lower()
+    motion = np.asarray(motion_params, dtype=np.float32)
+    if motion.ndim != 2 or motion.shape[1] != 6:
+        raise ValueError(f"motion_params must be (T, 6), got {motion.shape}")
+
+    deriv = np.vstack([np.zeros((1, 6), dtype=np.float32), np.diff(motion, axis=0)])
+    if model in {"none", "", "false"}:
+        confounds = np.zeros((motion.shape[0], 0), dtype=np.float32)
+    elif model == "motion6":
+        confounds = motion
+    elif model == "motion12":
+        confounds = np.column_stack([motion, deriv])
+    elif model in {"friston24", "friston_24"}:
+        confounds = np.column_stack([motion, deriv, motion ** 2, deriv ** 2])
+    else:
+        raise ValueError(
+            f"Unknown motion nuisance model: {model}. "
+            "Use motion6, motion12, or friston24."
+        )
+
+    if standardize and confounds.shape[1] > 0:
+        mean = confounds.mean(axis=0, keepdims=True)
+        std = confounds.std(axis=0, keepdims=True)
+        std[std < 1e-8] = 1.0
+        confounds = (confounds - mean) / std
+    return confounds.astype(np.float32)
+
+
+def _enabled(config_value, default: bool = False) -> bool:
+    """Read either a boolean config value or a dict with an enabled key."""
+    if isinstance(config_value, dict):
+        return bool(config_value.get("enabled", default))
+    if config_value is None:
+        return default
+    return bool(config_value)
 
 
 def highpass_filter(
@@ -185,7 +343,12 @@ def prepare_rest_data(
             "detrend": True,
             "highpass_cutoff_hz": 0.01,
             "motion_censoring": {"enabled": True, "fd_threshold_mm": 0.5, "max_censored_fraction": 0.3},
-            "nuisance_regression": False,
+            "nuisance_regression": {
+                "enabled": False,
+                "motion_model": "none",
+                "standardize": True,
+                "require_motion": False,
+            },
             "zscore": True,
             "min_usable_trs": 100,
         }
@@ -253,17 +416,42 @@ def prepare_rest_data(
         run_data = raw_data[mask].T
         del raw_data
 
-        # Load motion params if available
+        # Load motion params if available. NSD documents these under:
+        # nsddata_timeseries/ppdata/subjXX/func*/motion/motion_BB_runCC.tsv
         motion_params = None
-        if config.get("motion_censoring", {}).get("enabled", False):
+        nuisance_raw_cfg = config.get("nuisance_regression", {}) or {}
+        nuisance_enabled = _enabled(nuisance_raw_cfg, default=False)
+        nuisance_cfg = nuisance_raw_cfg if isinstance(nuisance_raw_cfg, dict) else {}
+        motion_censoring_enabled = config.get("motion_censoring", {}).get("enabled", False)
+        needs_motion = motion_censoring_enabled or nuisance_enabled
+        if needs_motion:
             motion_dir = os.path.join(
                 data_root, f"nsddata_timeseries/ppdata/subj{sub:02d}/func1pt8mm/motion/"
             )
-            motion_file = os.path.join(motion_dir, rest_file.replace(".nii.gz", "_motion.txt"))
-            if os.path.exists(motion_file):
-                motion_params = np.loadtxt(motion_file)
+            motion_file = find_motion_file(rest_file, motion_dir)
+            if motion_file is not None:
+                motion_params = load_motion_params(motion_file, expected_trs=run_data.shape[0])
+                logger.info(f"  Loaded motion params: {motion_file}")
             else:
-                logger.info(f"  No motion params found at {motion_file}, skipping censoring")
+                msg = f"  No motion params found for {rest_file} in {motion_dir}"
+                if nuisance_enabled and bool(nuisance_cfg.get("require_motion", False)):
+                    raise FileNotFoundError(msg)
+                logger.info(f"{msg}; skipping motion-based steps")
+
+        nuisance_regressors = None
+        if nuisance_enabled:
+            motion_model = str(nuisance_cfg.get("motion_model", "friston24"))
+            if motion_params is not None and motion_model.lower() not in {"none", "", "false"}:
+                nuisance_regressors = build_motion_confounds(
+                    motion_params,
+                    model=motion_model,
+                    standardize=bool(nuisance_cfg.get("standardize", True)),
+                )
+                logger.info(
+                    "  Built nuisance regressors: model=%s, shape=%s",
+                    motion_model,
+                    nuisance_regressors.shape,
+                )
 
         processed = preprocess_rest_run(
             run_data,
@@ -274,6 +462,7 @@ def prepare_rest_data(
             motion_params=motion_params,
             fd_threshold_mm=config.get("motion_censoring", {}).get("fd_threshold_mm", 0.5),
             max_censored_fraction=config.get("motion_censoring", {}).get("max_censored_fraction", 0.3),
+            nuisance_regressors=nuisance_regressors,
             zscore=config.get("zscore", True),
         )
 

@@ -264,6 +264,21 @@ Prediction metrics include atlas split summaries such as:
 - `atlas_unlabeled_n_voxels`
 - `atlas_unlabeled_median_r`
 
+## REST Motion Regression
+
+REST preprocessing can optionally regress motion nuisance terms from NSD motion files. See [REST_MOTION_REGRESSION.md](/home/rothermm/resting_prediction/REST_MOTION_REGRESSION.md).
+
+For Friston-24, set:
+
+```yaml
+rest_preprocessing:
+  nuisance_regression:
+    enabled: true
+    motion_model: "friston24"
+    standardize: true
+    require_motion: true
+```
+
 ## Where To Look After A Run
 
 Logs:
