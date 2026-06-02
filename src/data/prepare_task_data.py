@@ -18,6 +18,7 @@ import numpy as np
 import nibabel as nib
 import scipy.io as spio
 
+from src.data.load_atlas import build_analysis_mask
 from src.data.shared_paths import default_raw_data_root
 
 logger = logging.getLogger(__name__)
@@ -90,6 +91,10 @@ def prepare_task_data(
     output_root: str = "processed_data",
     max_sessions: int | None = None,
     stimulus_order: str = "sorted",
+    analysis_mask_mode: str = "nsdgeneral",
+    atlas_type: str = "combined_rois",
+    common_label_subjects: list[int] | None = None,
+    min_voxels_per_parcel: int = 10,
 ) -> dict:
     """
     Prepare averaged task fMRI for one subject.
@@ -116,10 +121,25 @@ def prepare_task_data(
     masterordering = np.array(stim_order["masterordering"])
     subjectim = np.array(stim_order["subjectim"])
 
-    # Load mask
-    mask = nib.load(os.path.join(roi_dir, "nsdgeneral.nii.gz")).get_fdata() > 0
+    # Load mask. By default this is exactly nsdgeneral; optionally restrict to
+    # nsdgeneral voxels that are labeled by the configured atlas.
+    nsdgeneral_mask = nib.load(os.path.join(roi_dir, "nsdgeneral.nii.gz")).get_fdata() > 0
+    mask, mask_summary = build_analysis_mask(
+        sub=sub,
+        nsdgeneral_mask=nsdgeneral_mask,
+        mode=analysis_mask_mode,
+        atlas_type=atlas_type,
+        data_root=data_root,
+        common_label_subjects=common_label_subjects,
+        min_voxels_per_parcel=min_voxels_per_parcel,
+    )
     num_voxels = int(mask.sum())
-    logger.info(f"Subject {sub}: {num_voxels} voxels in nsdgeneral mask")
+    logger.info(
+        "Subject %d: %d voxels in analysis mask (mode=%s)",
+        sub,
+        num_voxels,
+        analysis_mask_mode,
+    )
 
     # Discover sessions dynamically
     sessions = discover_sessions(betas_dir)
@@ -191,6 +211,8 @@ def prepare_task_data(
     np.save(os.path.join(out_dir, "test_fmri_trials.npy"), test_fmri_trials)
     np.save(os.path.join(out_dir, "test_trial_labels.npy"), test_trial_labels)
     np.save(os.path.join(out_dir, "mask.npy"), mask)
+    with open(os.path.join(out_dir, "analysis_mask_summary.json"), "w") as f:
+        json.dump(mask_summary, f, indent=2)
     with open(os.path.join(out_dir, "task_data_summary.json"), "w") as f:
         json.dump(
             {
@@ -204,6 +226,7 @@ def prepare_task_data(
                 "test_rows": int(test_fmri.shape[0]),
                 "test_trial_rows": int(test_fmri_trials.shape[0]),
                 "num_voxels": int(num_voxels),
+                "analysis_mask": mask_summary,
             },
             f,
             indent=2,
@@ -242,7 +265,50 @@ if __name__ == "__main__":
         default="sorted",
         help="Use 'insertion' to match Brain-Diffuser's first-seen row ordering.",
     )
+    parser.add_argument("--config", default="", help="Optional config.yaml for analysis_mask settings.")
+    parser.add_argument(
+        "--analysis-mask-mode",
+        choices=["nsdgeneral", "nsdgeneral_all", "atlas_labeled_only"],
+        default="",
+        help="Override analysis mask mode. Defaults to config or nsdgeneral.",
+    )
+    parser.add_argument(
+        "--atlas-type",
+        default="",
+        help="Override atlas type for atlas_labeled_only. Defaults to config or combined_rois.",
+    )
     args = parser.parse_args()
+
+    analysis_mask_mode = args.analysis_mask_mode.strip() or "nsdgeneral"
+    atlas_type = args.atlas_type.strip() or "combined_rois"
+    common_label_subjects = None
+    min_voxels_per_parcel = 10
+    if args.config and os.path.exists(args.config):
+        import yaml
+
+        with open(args.config) as f:
+            cfg = yaml.safe_load(f) or {}
+        mask_cfg = cfg.get("analysis_mask", {}) or {}
+        alignment_cfg = cfg.get("alignment", {}) or {}
+        subject_cfg = cfg.get("subjects", {}) or {}
+        analysis_mask_mode = (
+            args.analysis_mask_mode.strip()
+            or str(mask_cfg.get("mode", analysis_mask_mode))
+        )
+        atlas_type = (
+            args.atlas_type.strip()
+            or str(mask_cfg.get("atlas_type", alignment_cfg.get("atlas_type", atlas_type)))
+        )
+        min_voxels_per_parcel = int(
+            mask_cfg.get(
+                "min_voxels_per_parcel",
+                alignment_cfg.get("min_voxels_per_parcel", min_voxels_per_parcel),
+            )
+        )
+        if bool(mask_cfg.get("use_common_labels", True)):
+            common_label_subjects = list(subject_cfg.get("train", [])) + list(subject_cfg.get("test", []))
+            if not common_label_subjects:
+                common_label_subjects = None
 
     prepare_task_data(
         args.sub,
@@ -250,4 +316,8 @@ if __name__ == "__main__":
         args.output_root,
         max_sessions=args.max_sessions,
         stimulus_order=args.stimulus_order,
+        analysis_mask_mode=analysis_mask_mode,
+        atlas_type=atlas_type,
+        common_label_subjects=common_label_subjects,
+        min_voxels_per_parcel=min_voxels_per_parcel,
     )

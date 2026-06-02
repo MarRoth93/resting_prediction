@@ -17,6 +17,7 @@ LOG_DIR="${LOG_DIR:-${PROJECT_DIR}/slurm_logs}"
 CONDA_ENV="${CONDA_ENV:-resting-prediction}"
 DATA_ROOT="${DATA_ROOT:-/scratch_shared/rothermm/brain-diffuser/data}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-processed_data}"
+CONFIG_PATH="${CONFIG_PATH:-config.yaml}"
 
 subjects=(1 2 3 4 5 6 7)
 SUBJECT_ID="${subjects[${SLURM_ARRAY_TASK_ID}]}"
@@ -29,6 +30,7 @@ echo "SLURM_ARRAY_TASK_ID: ${SLURM_ARRAY_TASK_ID}"
 echo "SUBJECT_ID: ${SUBJECT_ID}"
 echo "PROJECT_DIR: ${PROJECT_DIR}"
 echo "CONDA_ENV: ${CONDA_ENV}"
+echo "CONFIG_PATH: ${CONFIG_PATH}"
 
 module purge
 module load miniconda
@@ -43,6 +45,7 @@ python -u -m src.data.prepare_task_data \
   -sub "${SUBJECT_ID}" \
   --data-root "${DATA_ROOT}" \
   --output-root "${OUTPUT_ROOT}" \
+  --config "${CONFIG_PATH}" \
   2>&1 | tee "${LOG_DIR}/prepare_task_sub${SUBJECT_ID}_${SLURM_JOB_ID}.debug.log"
 status=${PIPESTATUS[0]}
 

@@ -220,6 +220,14 @@ def train_pipeline(
     connectivity_mode = config["alignment"]["connectivity_mode"]
     experiment_mode = config["alignment"]["experiment_mode"]
     atlas_type = config["alignment"]["atlas_type"]
+    analysis_mask_cfg = config.get("analysis_mask", {}) or {}
+    if str(analysis_mask_cfg.get("mode", "nsdgeneral")).lower() == "atlas_labeled_only":
+        mask_atlas_type = str(analysis_mask_cfg.get("atlas_type", atlas_type))
+        if mask_atlas_type != str(atlas_type):
+            raise ValueError(
+                "analysis_mask.atlas_type must match alignment.atlas_type for "
+                f"atlas_labeled_only runs (got {mask_atlas_type} vs {atlas_type})."
+            )
     min_voxels_per_parcel = int(config["alignment"].get("min_voxels_per_parcel", 10))
     min_labeled_fraction_warn = float(config["alignment"].get("min_labeled_fraction_warn", 0.5))
     ridge_alpha = config["encoding"]["ridge_alpha"]
@@ -426,6 +434,7 @@ def train_pipeline(
         "timestamp": datetime.now().isoformat(),
         "config_hash": config_hash,
         "effective_config_hash": effective_config_hash,
+        "analysis_mask": copy.deepcopy(config.get("analysis_mask", {})),
         "train_subjects": train_subs,
         "feature_type": feature_type,
         "k_global": builder.k_global,
