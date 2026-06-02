@@ -6,7 +6,7 @@ Downloads:
 2. Stimuli (nsd_stimuli.hdf5 — 73k images)
 3. Task betas (betas_fithrf_GLMdenoise_RR — dynamically discovered sessions)
 4. ROI masks (nsdgeneral + all visual area atlases)
-5. Resting-state timeseries (REST runs only)
+5. Resting-state timeseries and matching motion files (REST runs only)
 6. Noise ceiling maps (ncsnr)
 
 Usage:
@@ -84,17 +84,22 @@ def extract_session_run_key(filename: str) -> tuple[int | None, int] | None:
     Supports patterns like:
     - ...session40...run01...
     - ...run01...session40...
+    - motion_40_run01.tsv
     - ...run01... (session unknown)
     """
-    m = re.search(r"session(\d+).*run(\d+)", filename)
+    m = re.search(r"motion[_-]?(\d+)[_-]run[_-]?(\d+)", filename, flags=re.IGNORECASE)
     if m is not None:
         return int(m.group(1)), int(m.group(2))
 
-    m = re.search(r"run(\d+).*session(\d+)", filename)
+    m = re.search(r"session[_-]?(\d+).*run[_-]?(\d+)", filename, flags=re.IGNORECASE)
+    if m is not None:
+        return int(m.group(1)), int(m.group(2))
+
+    m = re.search(r"run[_-]?(\d+).*session[_-]?(\d+)", filename, flags=re.IGNORECASE)
     if m is not None:
         return int(m.group(2)), int(m.group(1))
 
-    m = re.search(r"run(\d+)", filename)
+    m = re.search(r"run[_-]?(\d+)", filename, flags=re.IGNORECASE)
     if m is not None:
         return None, int(m.group(1))
 
@@ -395,10 +400,79 @@ def discover_rest_runs(sub: int) -> list[str]:
     return []
 
 
+def discover_motion_files_for_rest(sub: int, rest_files: list[str]) -> dict[str, str]:
+    """
+    Discover motion files matching REST runs.
+
+    Returns a mapping of rest filename -> motion filename. Exact session+run
+    matches are preferred. Run-only matching is used only when unambiguous.
+    """
+    motion_s3_path = (
+        f"{S3_BASE}/nsddata_timeseries/ppdata/subj{sub:02d}/"
+        f"func1pt8mm/motion/"
+    )
+    motion_files = [
+        f for f in s3_list(motion_s3_path)
+        if f.lower().endswith((".tsv", ".txt")) and "motion" in f.lower()
+    ]
+    if not motion_files:
+        logger.warning(f"  Subject {sub}: no motion files found at {motion_s3_path}")
+        return {}
+
+    motion_by_key: dict[tuple[int | None, int], list[str]] = {}
+    motion_by_run: dict[int, list[str]] = {}
+    for motion_file in motion_files:
+        key = extract_session_run_key(motion_file)
+        if key is None:
+            continue
+        motion_by_key.setdefault(key, []).append(motion_file)
+        _, run_id = key
+        motion_by_run.setdefault(run_id, []).append(motion_file)
+
+    matches: dict[str, str] = {}
+    for rest_file in rest_files:
+        key = extract_session_run_key(rest_file)
+        if key is None:
+            logger.warning(
+                f"  Subject {sub}: cannot infer session/run for REST file {rest_file}; "
+                "skipping motion match"
+            )
+            continue
+
+        sess_id, run_id = key
+        exact = sorted(motion_by_key.get(key, []))
+        if len(exact) == 1:
+            matches[rest_file] = exact[0]
+            continue
+        if len(exact) > 1:
+            logger.warning(
+                f"  Subject {sub}: multiple exact motion matches for {rest_file}: {exact}"
+            )
+            continue
+
+        run_matches = sorted(set(motion_by_run.get(run_id, [])))
+        if len(run_matches) == 1:
+            matches[rest_file] = run_matches[0]
+            continue
+        if len(run_matches) > 1:
+            logger.warning(
+                f"  Subject {sub}: multiple run-only motion matches for {rest_file} "
+                f"(session={sess_id}, run={run_id}): {run_matches}"
+            )
+            continue
+
+        logger.warning(f"  Subject {sub}: no motion match found for REST file {rest_file}")
+
+    logger.info(
+        f"  Subject {sub}: matched motion files for {len(matches)}/{len(rest_files)} REST runs"
+    )
+    return matches
+
+
 def download_rest_timeseries():
-    """Download resting-state timeseries for all subjects."""
+    """Download resting-state timeseries and matching motion files for all subjects."""
     logger.info("=" * 60)
-    logger.info("Downloading REST timeseries...")
+    logger.info("Downloading REST timeseries and matching motion files...")
 
     for sub in SUBJECTS:
         out_dir = (
@@ -424,9 +498,9 @@ def download_rest_timeseries():
                     if not missing:
                         logger.info(
                             f"  Subject {sub}: REST files already present from manifest "
-                            f"({len(manifest_runs)} runs), skipping download"
+                            f"({len(manifest_runs)} runs), checking motion files"
                         )
-                        continue
+                        rest_files = manifest_runs
                     logger.info(
                         f"  Subject {sub}: manifest found with {len(manifest_runs)} runs, "
                         f"{len(missing)} missing locally"
@@ -457,9 +531,33 @@ def download_rest_timeseries():
             )
             run_cmd(f"aws s3 cp {s3_path} {out_dir}", f"    {rest_file}")
 
+        motion_matches = discover_motion_files_for_rest(sub, rest_files)
+        motion_out_dir = (
+            f"nsddata_timeseries/ppdata/subj{sub:02d}/func1pt8mm/motion/"
+        )
+        os.makedirs(motion_out_dir, exist_ok=True)
+        for rest_file, motion_file in motion_matches.items():
+            local_path = os.path.join(motion_out_dir, motion_file)
+            if local_file_ready(local_path):
+                logger.info(f"    {motion_file}: already exists, skipping")
+                continue
+            s3_path = (
+                f"{S3_BASE}/nsddata_timeseries/ppdata/subj{sub:02d}/"
+                f"func1pt8mm/motion/{motion_file}"
+            )
+            run_cmd(f"aws s3 cp {s3_path} {motion_out_dir}", f"    {motion_file} ({rest_file})")
+
         # Save manifest
         with open(manifest_path, "w") as f:
-            json.dump({"rest_runs": rest_files, "subject": sub}, f, indent=2)
+            json.dump(
+                {
+                    "rest_runs": rest_files,
+                    "rest_motion_files": motion_matches,
+                    "subject": sub,
+                },
+                f,
+                indent=2,
+            )
         logger.info(f"  Subject {sub}: saved REST manifest ({len(rest_files)} runs)")
 
 
