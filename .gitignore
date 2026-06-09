@@ -20,9 +20,9 @@ venv/
 .DS_Store
 
 # Local logs
-slurm_logs/
-slurm-*.out
-*.log
+# slurm_logs/
+# slurm-*.out
+# *.log
 
 # NSD data
 nsddata/
@@ -62,6 +62,25 @@ outputs/gt_recon_ab_compare/
 # Allow small committed test fixtures (if needed)
 !tests/fixtures/
 !tests/fixtures/**
+
+# Ensure JSON and CSV files are not accidentally ignored. This re-includes
+# .json/.csv files even when their parent directories are listed above.
+!*.json
+!*.csv
+!processed_data/**/*.json
+!processed_data/**/*.csv
+!outputs/**/*.json
+!outputs/**/*.csv
+!nsddata/**/*.json
+!nsddata/**/*.csv
+
+# Re-include these parent directories so the above negations can take effect
+!processed_data/
+!processed_data/**
+!outputs/
+!outputs/**
+!nsddata/
+!nsddata/**
 
 # Test/coverage artifacts
 .coverage
