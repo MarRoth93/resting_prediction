@@ -1,0 +1,29 @@
+{
+  "study_name": "shared_space_optuna_clip_dinov2",
+  "feature_type": "clip_dinov2",
+  "storage": "sqlite:////mnt/nfs/home/rothermm/resting_prediction/outputs/hparam_sweeps/shared_space/shared_space_optuna_clip_dinov2/study.db",
+  "n_trials_total": 40,
+  "state_counts": {
+    "COMPLETE": 25,
+    "PRUNED": 15
+  },
+  "best_trial": 37,
+  "best_value": 0.155027086536,
+  "best_params": {
+    "encoding": {
+      "ridge_alpha": 42125.23937369464
+    },
+    "alignment": {
+      "n_components": 120
+    }
+  },
+  "paths": {
+    "study_dir": "outputs/hparam_sweeps/shared_space/shared_space_optuna_clip_dinov2",
+    "tensorboard_dir": "outputs/hparam_sweeps/shared_space/tensorboard/shared_space_optuna_clip_dinov2",
+    "trials_csv": "outputs/hparam_sweeps/shared_space/shared_space_optuna_clip_dinov2/trials.csv",
+    "best_params_json": "outputs/hparam_sweeps/shared_space/shared_space_optuna_clip_dinov2/best_params.json",
+    "best_trial_metrics_json": "outputs/hparam_sweeps/shared_space/shared_space_optuna_clip_dinov2/best_trial_metrics.json",
+    "best_model_dir": "outputs/shared_space_clip_dinov2"
+  },
+  "retrained_best_model": true
+}

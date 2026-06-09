@@ -1,0 +1,9 @@
+{
+  "subject": 5,
+  "mode": "nsdgeneral",
+  "atlas_type": null,
+  "nsdgeneral_voxels": 13039,
+  "analysis_voxels": 13039,
+  "dropped_unlabeled_voxels": 0,
+  "labeled_fraction_within_nsdgeneral": null
+}

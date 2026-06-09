@@ -1,0 +1,36 @@
+{
+  "timestamp": "2026-02-26T15:11:00.867156",
+  "config_hash": "d6e0e42e3bc2afbfd7dd1d3cc723d8e2801b18a48fecbd51c66dd08c9c87ab49",
+  "effective_config_hash": "c1915da88a1df10d6d5d6d8ddca503fb678f213dc2f28745fb94acc78a18d7f4",
+  "train_subjects": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+  ],
+  "feature_type": "clip",
+  "k_global": 30,
+  "n_parcels": 34,
+  "n_train_samples": 52264,
+  "experiment_mode": "hybrid_cha",
+  "shared_stimulus_strategy": "intersection",
+  "n_shared_stimuli": 907,
+  "per_subject_dropped_test_stimuli": {
+    "1": 93,
+    "2": 93,
+    "3": 23,
+    "4": 0,
+    "5": 93,
+    "6": 23
+  },
+  "config_overrides": {
+    "encoding": {
+      "ridge_alpha": 16309.013802302296
+    },
+    "alignment": {
+      "n_components": 30
+    }
+  }
+}

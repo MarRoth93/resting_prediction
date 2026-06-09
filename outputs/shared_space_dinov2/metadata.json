@@ -1,0 +1,41 @@
+{
+  "timestamp": "2026-06-03T19:06:26.011094",
+  "config_hash": "367879a0cc7bed9629fac92f765a34dc98c3382d662ab0e81b9b9727b8502450",
+  "effective_config_hash": "80798afea96bb52c4389d14572c0697103387cb3e01b475547dcd0c664f5e309",
+  "analysis_mask": {
+    "mode": "nsdgeneral",
+    "atlas_type": "combined_rois",
+    "use_common_labels": true
+  },
+  "train_subjects": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+  ],
+  "feature_type": "dinov2",
+  "k_global": 33,
+  "n_parcels": 34,
+  "n_train_samples": 52264,
+  "experiment_mode": "hybrid_cha",
+  "shared_stimulus_strategy": "intersection",
+  "n_shared_stimuli": 907,
+  "per_subject_dropped_test_stimuli": {
+    "1": 93,
+    "2": 93,
+    "3": 23,
+    "4": 0,
+    "5": 93,
+    "6": 23
+  },
+  "config_overrides": {
+    "encoding": {
+      "ridge_alpha": 34329.405668855725
+    },
+    "alignment": {
+      "n_components": 140
+    }
+  }
+}

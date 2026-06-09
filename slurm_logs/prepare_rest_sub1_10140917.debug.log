@@ -1,0 +1,220 @@
+INFO:__main__:Subject 1: loaded REST manifest with 36 runs
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:Subject 1: processing REST run 1/36: timeseries_session21_run01.nii.gz
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded motion params: /scratch_shared/rothermm/brain-diffuser/data/nsddata_timeseries/ppdata/subj01/func1pt8mm/motion/motion_session21_run01.tsv
+INFO:__main__:  Motion censoring: 0.0% TRs censored (FD > 0.5mm)
+INFO:__main__:Subject 1: processing REST run 2/36: timeseries_session21_run14.nii.gz
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded motion params: /scratch_shared/rothermm/brain-diffuser/data/nsddata_timeseries/ppdata/subj01/func1pt8mm/motion/motion_session21_run14.tsv
+INFO:__main__:  Motion censoring: 0.0% TRs censored (FD > 0.5mm)
+INFO:__main__:Subject 1: processing REST run 3/36: timeseries_session22_run01.nii.gz
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded motion params: /scratch_shared/rothermm/brain-diffuser/data/nsddata_timeseries/ppdata/subj01/func1pt8mm/motion/motion_session22_run01.tsv
+INFO:__main__:  Motion censoring: 0.0% TRs censored (FD > 0.5mm)
+INFO:__main__:Subject 1: processing REST run 4/36: timeseries_session22_run14.nii.gz
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded motion params: /scratch_shared/rothermm/brain-diffuser/data/nsddata_timeseries/ppdata/subj01/func1pt8mm/motion/motion_session22_run14.tsv
+INFO:__main__:  Motion censoring: 0.0% TRs censored (FD > 0.5mm)
+INFO:__main__:Subject 1: processing REST run 5/36: timeseries_session23_run01.nii.gz
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded motion params: /scratch_shared/rothermm/brain-diffuser/data/nsddata_timeseries/ppdata/subj01/func1pt8mm/motion/motion_session23_run01.tsv
+INFO:__main__:  Motion censoring: 0.0% TRs censored (FD > 0.5mm)
+INFO:__main__:Subject 1: processing REST run 6/36: timeseries_session23_run14.nii.gz
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded motion params: /scratch_shared/rothermm/brain-diffuser/data/nsddata_timeseries/ppdata/subj01/func1pt8mm/motion/motion_session23_run14.tsv
+INFO:__main__:  Motion censoring: 0.0% TRs censored (FD > 0.5mm)
+INFO:__main__:Subject 1: processing REST run 7/36: timeseries_session24_run01.nii.gz
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded motion params: /scratch_shared/rothermm/brain-diffuser/data/nsddata_timeseries/ppdata/subj01/func1pt8mm/motion/motion_session24_run01.tsv
+INFO:__main__:  Motion censoring: 0.0% TRs censored (FD > 0.5mm)
+INFO:__main__:Subject 1: processing REST run 8/36: timeseries_session24_run14.nii.gz
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded motion params: /scratch_shared/rothermm/brain-diffuser/data/nsddata_timeseries/ppdata/subj01/func1pt8mm/motion/motion_session24_run14.tsv
+INFO:__main__:  Motion censoring: 0.0% TRs censored (FD > 0.5mm)
+INFO:__main__:Subject 1: processing REST run 9/36: timeseries_session25_run01.nii.gz
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded motion params: /scratch_shared/rothermm/brain-diffuser/data/nsddata_timeseries/ppdata/subj01/func1pt8mm/motion/motion_session25_run01.tsv
+INFO:__main__:  Motion censoring: 0.0% TRs censored (FD > 0.5mm)
+INFO:__main__:Subject 1: processing REST run 10/36: timeseries_session25_run14.nii.gz
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded motion params: /scratch_shared/rothermm/brain-diffuser/data/nsddata_timeseries/ppdata/subj01/func1pt8mm/motion/motion_session25_run14.tsv
+INFO:__main__:  Motion censoring: 0.0% TRs censored (FD > 0.5mm)
+INFO:__main__:Subject 1: processing REST run 11/36: timeseries_session26_run01.nii.gz
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded motion params: /scratch_shared/rothermm/brain-diffuser/data/nsddata_timeseries/ppdata/subj01/func1pt8mm/motion/motion_session26_run01.tsv
+INFO:__main__:  Motion censoring: 0.0% TRs censored (FD > 0.5mm)
+INFO:__main__:Subject 1: processing REST run 12/36: timeseries_session26_run14.nii.gz
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded motion params: /scratch_shared/rothermm/brain-diffuser/data/nsddata_timeseries/ppdata/subj01/func1pt8mm/motion/motion_session26_run14.tsv
+INFO:__main__:  Motion censoring: 0.0% TRs censored (FD > 0.5mm)
+INFO:__main__:Subject 1: processing REST run 13/36: timeseries_session27_run01.nii.gz
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded motion params: /scratch_shared/rothermm/brain-diffuser/data/nsddata_timeseries/ppdata/subj01/func1pt8mm/motion/motion_session27_run01.tsv
+INFO:__main__:  Motion censoring: 0.0% TRs censored (FD > 0.5mm)
+INFO:__main__:Subject 1: processing REST run 14/36: timeseries_session27_run14.nii.gz
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded motion params: /scratch_shared/rothermm/brain-diffuser/data/nsddata_timeseries/ppdata/subj01/func1pt8mm/motion/motion_session27_run14.tsv
+INFO:__main__:  Motion censoring: 0.0% TRs censored (FD > 0.5mm)
+INFO:__main__:Subject 1: processing REST run 15/36: timeseries_session28_run01.nii.gz
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded motion params: /scratch_shared/rothermm/brain-diffuser/data/nsddata_timeseries/ppdata/subj01/func1pt8mm/motion/motion_session28_run01.tsv
+INFO:__main__:  Motion censoring: 0.0% TRs censored (FD > 0.5mm)
+INFO:__main__:Subject 1: processing REST run 16/36: timeseries_session28_run14.nii.gz
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded motion params: /scratch_shared/rothermm/brain-diffuser/data/nsddata_timeseries/ppdata/subj01/func1pt8mm/motion/motion_session28_run14.tsv
+INFO:__main__:  Motion censoring: 0.0% TRs censored (FD > 0.5mm)
+INFO:__main__:Subject 1: processing REST run 17/36: timeseries_session29_run01.nii.gz
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded motion params: /scratch_shared/rothermm/brain-diffuser/data/nsddata_timeseries/ppdata/subj01/func1pt8mm/motion/motion_session29_run01.tsv
+INFO:__main__:  Motion censoring: 0.0% TRs censored (FD > 0.5mm)
+INFO:__main__:Subject 1: processing REST run 18/36: timeseries_session29_run14.nii.gz
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded motion params: /scratch_shared/rothermm/brain-diffuser/data/nsddata_timeseries/ppdata/subj01/func1pt8mm/motion/motion_session29_run14.tsv
+INFO:__main__:  Motion censoring: 0.0% TRs censored (FD > 0.5mm)
+INFO:__main__:Subject 1: processing REST run 19/36: timeseries_session30_run01.nii.gz
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded motion params: /scratch_shared/rothermm/brain-diffuser/data/nsddata_timeseries/ppdata/subj01/func1pt8mm/motion/motion_session30_run01.tsv
+INFO:__main__:  Motion censoring: 0.0% TRs censored (FD > 0.5mm)
+INFO:__main__:Subject 1: processing REST run 20/36: timeseries_session30_run14.nii.gz
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded motion params: /scratch_shared/rothermm/brain-diffuser/data/nsddata_timeseries/ppdata/subj01/func1pt8mm/motion/motion_session30_run14.tsv
+INFO:__main__:  Motion censoring: 0.0% TRs censored (FD > 0.5mm)
+INFO:__main__:Subject 1: processing REST run 21/36: timeseries_session31_run01.nii.gz
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded motion params: /scratch_shared/rothermm/brain-diffuser/data/nsddata_timeseries/ppdata/subj01/func1pt8mm/motion/motion_session31_run01.tsv
+INFO:__main__:  Motion censoring: 0.0% TRs censored (FD > 0.5mm)
+INFO:__main__:Subject 1: processing REST run 22/36: timeseries_session31_run14.nii.gz
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded motion params: /scratch_shared/rothermm/brain-diffuser/data/nsddata_timeseries/ppdata/subj01/func1pt8mm/motion/motion_session31_run14.tsv
+INFO:__main__:  Motion censoring: 0.0% TRs censored (FD > 0.5mm)
+INFO:__main__:Subject 1: processing REST run 23/36: timeseries_session32_run01.nii.gz
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded motion params: /scratch_shared/rothermm/brain-diffuser/data/nsddata_timeseries/ppdata/subj01/func1pt8mm/motion/motion_session32_run01.tsv
+INFO:__main__:  Motion censoring: 0.0% TRs censored (FD > 0.5mm)
+INFO:__main__:Subject 1: processing REST run 24/36: timeseries_session32_run14.nii.gz
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded motion params: /scratch_shared/rothermm/brain-diffuser/data/nsddata_timeseries/ppdata/subj01/func1pt8mm/motion/motion_session32_run14.tsv
+INFO:__main__:  Motion censoring: 0.0% TRs censored (FD > 0.5mm)
+INFO:__main__:Subject 1: processing REST run 25/36: timeseries_session33_run01.nii.gz
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded motion params: /scratch_shared/rothermm/brain-diffuser/data/nsddata_timeseries/ppdata/subj01/func1pt8mm/motion/motion_session33_run01.tsv
+INFO:__main__:  Motion censoring: 0.0% TRs censored (FD > 0.5mm)
+INFO:__main__:Subject 1: processing REST run 26/36: timeseries_session33_run14.nii.gz
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded motion params: /scratch_shared/rothermm/brain-diffuser/data/nsddata_timeseries/ppdata/subj01/func1pt8mm/motion/motion_session33_run14.tsv
+INFO:__main__:  Motion censoring: 0.0% TRs censored (FD > 0.5mm)
+INFO:__main__:Subject 1: processing REST run 27/36: timeseries_session34_run01.nii.gz
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded motion params: /scratch_shared/rothermm/brain-diffuser/data/nsddata_timeseries/ppdata/subj01/func1pt8mm/motion/motion_session34_run01.tsv
+INFO:__main__:  Motion censoring: 0.0% TRs censored (FD > 0.5mm)
+INFO:__main__:Subject 1: processing REST run 28/36: timeseries_session34_run14.nii.gz
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded motion params: /scratch_shared/rothermm/brain-diffuser/data/nsddata_timeseries/ppdata/subj01/func1pt8mm/motion/motion_session34_run14.tsv
+INFO:__main__:  Motion censoring: 0.0% TRs censored (FD > 0.5mm)
+INFO:__main__:Subject 1: processing REST run 29/36: timeseries_session35_run01.nii.gz
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded motion params: /scratch_shared/rothermm/brain-diffuser/data/nsddata_timeseries/ppdata/subj01/func1pt8mm/motion/motion_session35_run01.tsv
+INFO:__main__:  Motion censoring: 0.0% TRs censored (FD > 0.5mm)
+INFO:__main__:Subject 1: processing REST run 30/36: timeseries_session35_run14.nii.gz
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded motion params: /scratch_shared/rothermm/brain-diffuser/data/nsddata_timeseries/ppdata/subj01/func1pt8mm/motion/motion_session35_run14.tsv
+INFO:__main__:  Motion censoring: 0.0% TRs censored (FD > 0.5mm)
+INFO:__main__:Subject 1: processing REST run 31/36: timeseries_session36_run01.nii.gz
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded motion params: /scratch_shared/rothermm/brain-diffuser/data/nsddata_timeseries/ppdata/subj01/func1pt8mm/motion/motion_session36_run01.tsv
+INFO:__main__:  Motion censoring: 0.0% TRs censored (FD > 0.5mm)
+INFO:__main__:Subject 1: processing REST run 32/36: timeseries_session36_run14.nii.gz
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded motion params: /scratch_shared/rothermm/brain-diffuser/data/nsddata_timeseries/ppdata/subj01/func1pt8mm/motion/motion_session36_run14.tsv
+INFO:__main__:  Motion censoring: 0.0% TRs censored (FD > 0.5mm)
+INFO:__main__:Subject 1: processing REST run 33/36: timeseries_session37_run01.nii.gz
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded motion params: /scratch_shared/rothermm/brain-diffuser/data/nsddata_timeseries/ppdata/subj01/func1pt8mm/motion/motion_session37_run01.tsv
+INFO:__main__:  Motion censoring: 0.0% TRs censored (FD > 0.5mm)
+INFO:__main__:Subject 1: processing REST run 34/36: timeseries_session37_run14.nii.gz
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded motion params: /scratch_shared/rothermm/brain-diffuser/data/nsddata_timeseries/ppdata/subj01/func1pt8mm/motion/motion_session37_run14.tsv
+INFO:__main__:  Motion censoring: 0.0% TRs censored (FD > 0.5mm)
+INFO:__main__:Subject 1: processing REST run 35/36: timeseries_session38_run01.nii.gz
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded motion params: /scratch_shared/rothermm/brain-diffuser/data/nsddata_timeseries/ppdata/subj01/func1pt8mm/motion/motion_session38_run01.tsv
+INFO:__main__:  Motion censoring: 0.0% TRs censored (FD > 0.5mm)
+INFO:__main__:Subject 1: processing REST run 36/36: timeseries_session38_run14.nii.gz
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded motion params: /scratch_shared/rothermm/brain-diffuser/data/nsddata_timeseries/ppdata/subj01/func1pt8mm/motion/motion_session38_run14.tsv
+INFO:__main__:  Motion censoring: 0.0% TRs censored (FD > 0.5mm)
+INFO:__main__:  Saved rest_run1.npy: (221, 15724)
+INFO:__main__:  Saved rest_run2.npy: (221, 15724)
+INFO:__main__:  Saved rest_run3.npy: (221, 15724)
+INFO:__main__:  Saved rest_run4.npy: (221, 15724)
+INFO:__main__:  Saved rest_run5.npy: (221, 15724)
+INFO:__main__:  Saved rest_run6.npy: (221, 15724)
+INFO:__main__:  Saved rest_run7.npy: (221, 15724)
+INFO:__main__:  Saved rest_run8.npy: (221, 15724)
+INFO:__main__:  Saved rest_run9.npy: (221, 15724)
+INFO:__main__:  Saved rest_run10.npy: (221, 15724)
+INFO:__main__:  Saved rest_run11.npy: (221, 15724)
+INFO:__main__:  Saved rest_run12.npy: (221, 15724)
+INFO:__main__:  Saved rest_run13.npy: (221, 15724)
+INFO:__main__:  Saved rest_run14.npy: (221, 15724)
+INFO:__main__:  Saved rest_run15.npy: (221, 15724)
+INFO:__main__:  Saved rest_run16.npy: (221, 15724)
+INFO:__main__:  Saved rest_run17.npy: (221, 15724)
+INFO:__main__:  Saved rest_run18.npy: (221, 15724)
+INFO:__main__:  Saved rest_run19.npy: (221, 15724)
+INFO:__main__:  Saved rest_run20.npy: (221, 15724)
+INFO:__main__:  Saved rest_run21.npy: (221, 15724)
+INFO:__main__:  Saved rest_run22.npy: (221, 15724)
+INFO:__main__:  Saved rest_run23.npy: (221, 15724)
+INFO:__main__:  Saved rest_run24.npy: (221, 15724)
+INFO:__main__:  Saved rest_run25.npy: (221, 15724)
+INFO:__main__:  Saved rest_run26.npy: (221, 15724)
+INFO:__main__:  Saved rest_run27.npy: (221, 15724)
+INFO:__main__:  Saved rest_run28.npy: (221, 15724)
+INFO:__main__:  Saved rest_run29.npy: (221, 15724)
+INFO:__main__:  Saved rest_run30.npy: (221, 15724)
+INFO:__main__:  Saved rest_run31.npy: (221, 15724)
+INFO:__main__:  Saved rest_run32.npy: (221, 15724)
+INFO:__main__:  Saved rest_run33.npy: (221, 15724)
+INFO:__main__:  Saved rest_run34.npy: (221, 15724)
+INFO:__main__:  Saved rest_run35.npy: (221, 15724)
+INFO:__main__:  Saved rest_run36.npy: (221, 15724)
+INFO:__main__:Subject 1: 36 REST runs, 7956 total TRs, 15724 voxels

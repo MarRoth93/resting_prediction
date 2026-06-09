@@ -1,0 +1,109 @@
+==== Job started on gpunode28 at Tue Jun  2 15:24:00 CEST 2026 ====
+SLURM_JOB_ID: 10140914
+SLURM_ARRAY_TASK_ID: 3
+SUBJECT_ID: 4
+PROJECT_DIR: /home/rothermm/resting_prediction
+CONDA_ENV: resting-prediction
+CONFIG_PATH: config.yaml
+Activated Conda environment: /home/rothermm/.conda/envs/resting-prediction/bin/python
+/mnt/nfs/home/rothermm/resting_prediction/src/data/prepare_task_data.py:31: DeprecationWarning: Please import `mat_struct` from the `scipy.io.matlab` namespace; the `scipy.io.matlab.mio5_params` namespace is deprecated and will be removed in SciPy 2.0.0.
+  if isinstance(d[key], spio.matlab.mio5_params.mat_struct):
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:Subject 4: 13153 voxels in analysis mask (mode=nsdgeneral)
+INFO:__main__:Discovered 30 sessions in /scratch_shared/rothermm/brain-diffuser/data/nsddata_betas/ppdata/subj04/func1pt8mm/betas_fithrf_GLMdenoise_RR/
+INFO:__main__:Subject 4: 8302 train stimuli, 907 test stimuli
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded session 1/30
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded session 2/30
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded session 3/30
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded session 4/30
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded session 5/30
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded session 6/30
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded session 7/30
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded session 8/30
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded session 9/30
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded session 10/30
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded session 11/30
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded session 12/30
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded session 13/30
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded session 14/30
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded session 15/30
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded session 16/30
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded session 17/30
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded session 18/30
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded session 19/30
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded session 20/30
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded session 21/30
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded session 22/30
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded session 23/30
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded session 24/30
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded session 25/30
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded session 26/30
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded session 27/30
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded session 28/30
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded session 29/30
+pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:nibabel.global:pixdim[0] (qfac) should be 1 (default) or -1; setting qfac to 1
+INFO:__main__:  Loaded session 30/30
+INFO:__main__:Subject 4: saved to processed_data/subj04
+INFO:__main__:  train_fmri: (8302, 13153), test_fmri: (907, 13153)
+INFO:__main__:  test_fmri_trials: (2188, 13153)
+==== Job finished at Tue Jun  2 15:28:28 CEST 2026 with exit code 0 ====

@@ -1,0 +1,29 @@
+{
+  "study_name": "shared_space_optuna_v2",
+  "feature_type": "clip",
+  "storage": "sqlite:////mnt/nfs/home/rothermm/resting_prediction/outputs/hparam_sweeps/shared_space/shared_space_optuna_v2/study.db",
+  "n_trials_total": 80,
+  "state_counts": {
+    "COMPLETE": 36,
+    "PRUNED": 44
+  },
+  "best_trial": 67,
+  "best_value": 0.157782293856,
+  "best_params": {
+    "encoding": {
+      "ridge_alpha": 13537.26588099669
+    },
+    "alignment": {
+      "n_components": 165
+    }
+  },
+  "paths": {
+    "study_dir": "outputs/hparam_sweeps/shared_space/shared_space_optuna_v2",
+    "tensorboard_dir": "outputs/hparam_sweeps/shared_space/tensorboard/shared_space_optuna_v2",
+    "trials_csv": "outputs/hparam_sweeps/shared_space/shared_space_optuna_v2/trials.csv",
+    "best_params_json": "outputs/hparam_sweeps/shared_space/shared_space_optuna_v2/best_params.json",
+    "best_trial_metrics_json": "outputs/hparam_sweeps/shared_space/shared_space_optuna_v2/best_trial_metrics.json",
+    "best_model_dir": "outputs/shared_space"
+  },
+  "retrained_best_model": true
+}

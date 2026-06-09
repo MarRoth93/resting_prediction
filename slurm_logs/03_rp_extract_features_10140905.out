@@ -1,0 +1,13 @@
+==== Job started on gpunode40 at Wed Jun  3 13:14:08 CEST 2026 ====
+SLURM_JOB_ID: 10140905
+PROJECT_DIR: /home/rothermm/resting_prediction
+CONDA_ENV: resting-prediction
+STIMULI_PATH: /scratch_shared/rothermm/brain-diffuser/data/nsddata_stimuli/stimuli/nsd/nsd_stimuli.hdf5
+FEATURE_OUTPUT_DIR: processed_data/features
+MODELS: clip dinov2
+DEVICE: cuda
+BATCH_SIZE: 64
+Activated Conda environment: /home/rothermm/.conda/envs/resting-prediction/bin/python
+INFO:__main__:clip features already exist at processed_data/features/clip_features.npy, skipping
+INFO:__main__:dinov2 features already exist at processed_data/features/dinov2_features.npy, skipping
+==== Job finished at Wed Jun  3 13:14:13 CEST 2026 with exit code 0 ====

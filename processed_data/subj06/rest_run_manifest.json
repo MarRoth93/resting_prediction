@@ -1,0 +1,25 @@
+{
+  "rest_runs": [
+    "timeseries_session21_run01.nii.gz",
+    "timeseries_session21_run14.nii.gz",
+    "timeseries_session22_run01.nii.gz",
+    "timeseries_session22_run14.nii.gz",
+    "timeseries_session23_run01.nii.gz",
+    "timeseries_session23_run14.nii.gz",
+    "timeseries_session24_run01.nii.gz",
+    "timeseries_session24_run14.nii.gz",
+    "timeseries_session25_run01.nii.gz",
+    "timeseries_session25_run14.nii.gz",
+    "timeseries_session26_run01.nii.gz",
+    "timeseries_session26_run14.nii.gz",
+    "timeseries_session27_run01.nii.gz",
+    "timeseries_session27_run14.nii.gz",
+    "timeseries_session28_run01.nii.gz",
+    "timeseries_session28_run14.nii.gz",
+    "timeseries_session29_run01.nii.gz",
+    "timeseries_session29_run14.nii.gz",
+    "timeseries_session30_run01.nii.gz",
+    "timeseries_session30_run14.nii.gz"
+  ],
+  "subject": 6
+}

@@ -1,0 +1,5 @@
+2026-06-03 20:48:31,567 __main__ INFO Best few-shot N from summary: 750
+2026-06-03 20:48:31,582 __main__ INFO Selected few-shot run: N=750 seed=42 median_r=0.1813 (outputs/ablations/fewshot/fewshot_sub7_N750_seed42_metrics.json)
+2026-06-03 20:48:31,582 __main__ INFO Using zero-shot prediction: outputs/predictions/zeroshot_sub7_pred.npy
+2026-06-03 20:48:38,167 __main__ INFO Saved 12 figures to outputs/visualizations/prediction_maps
+2026-06-03 20:48:38,167 __main__ INFO Manifest: outputs/visualizations/prediction_maps/manifest.csv

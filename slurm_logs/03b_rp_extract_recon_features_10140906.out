@@ -1,0 +1,18 @@
+==== Job started on gpunode40 at Wed Jun  3 13:22:09 CEST 2026 ====
+SLURM_JOB_ID: 10140906
+PROJECT_DIR: /home/rothermm/resting_prediction
+CONDA_ENV: resting-prediction
+TEST_SUBJECT: 7
+DATA_ROOT: processed_data
+RECON_FEATURE_DIR: processed_data/reconstruction_features/subj07
+RECON_MODEL_ROOT: /home/rothermm/brain-diffuser
+STIMULI_HDF5: /scratch_shared/rothermm/brain-diffuser/data/nsddata_stimuli/stimuli/nsd/nsd_stimuli.hdf5
+ANNOTS_NPY: /scratch_shared/rothermm/brain-diffuser/data/annots/COCO_73k_annots_curated.npy
+VD_WEIGHTS_PATH: /home/rothermm/brain-diffuser/versatile_diffusion/pretrained/vd-four-flow-v1-0-fp16-deprecated.pth
+VDVAE_BATCH_SIZE: 8
+CLIPVISION_BATCH_SIZE: 8
+DEVICE: cuda
+SKIP_IF_EXISTS: 1
+Activated Conda environment: /home/rothermm/.conda/envs/resting-prediction/bin/python
+2026-06-03 13:22:12,018 __main__ INFO All reconstruction feature outputs already exist in processed_data/reconstruction_features/subj07; skipping.
+==== Job finished at Wed Jun  3 13:22:12 CEST 2026 with exit code 0 ====

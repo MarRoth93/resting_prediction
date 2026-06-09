@@ -1,0 +1,2 @@
+INFO:__main__:clip features already exist at processed_data/features/clip_features.npy, skipping
+INFO:__main__:dinov2 features already exist at processed_data/features/dinov2_features.npy, skipping
