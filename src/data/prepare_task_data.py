@@ -8,6 +8,8 @@ Refactored from prepare_nsddata.py with:
 - float32 throughout
 """
 
+from __future__ import annotations
+
 import os
 import glob
 import json

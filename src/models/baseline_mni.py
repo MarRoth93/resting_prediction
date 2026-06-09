@@ -5,6 +5,8 @@ Simplest approach — pools training subjects in MNI space.
 Requires spatial transforms (nilearn).
 """
 
+from __future__ import annotations
+
 import logging
 import os
 

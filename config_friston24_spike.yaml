@@ -1,0 +1,106 @@
+# Predicting Task Activation from Resting State Data — local Friston-24 run
+
+# Data
+subjects:
+  train: [1, 2, 3, 4, 5, 6]
+  test: [7]
+data_root: "."
+raw_data_root: "/media/psycontrol/HDD/Datasets/brain-diffuser/data"
+output_root: "outputs_friston24_spike"
+
+# Analysis mask
+# Keep Pipeline A/default mask here. Set mode to "atlas_labeled_only" for the
+# analysis-mask B condition.
+analysis_mask:
+  mode: "nsdgeneral"
+  atlas_type: "combined_rois"
+  use_common_labels: true
+
+# Feature extraction
+features:
+  type: "clip"
+  clip_model: "ViT-L/14"
+  dinov2_model: "dinov2_vitl14"
+  batch_size: 64
+  device: "cuda"
+
+# Reproducibility
+random_seed: 42
+fewshot_n_repeats: 5
+
+# REST preprocessing
+rest_preprocessing:
+  discard_initial_trs: 5
+  detrend: true
+  highpass_cutoff_hz: 0.01
+  motion_censoring:
+    enabled: true
+    fd_threshold_mm: 0.5
+    max_censored_fraction: 0.3
+    strategy: "spike_regress_then_drop"
+  nuisance_regression:
+    enabled: true
+    motion_model: "friston24"
+    standardize: true
+    require_motion: true
+  zscore: true
+  min_usable_trs: 100
+
+# Alignment
+alignment:
+  n_components: 50
+  min_k: 10
+  connectivity_mode: "parcellation"
+  experiment_mode: "hybrid_cha"
+  atlas_type: "combined_rois"
+  atlas_harmonize: "intersection"
+  min_voxels_per_parcel: 10
+  min_labeled_fraction_warn: 0.5
+  ensemble_method: "average"
+  max_iters: 10
+  tol: 1.0e-5
+
+# Compute policy
+compute:
+  dtype: "float32"
+  use_randomized_svd: true
+  randomized_svd_oversampling: 10
+  memmap_threshold_gb: 2.0
+
+# Encoding
+encoding:
+  model_type: "ridge"
+  ridge_alpha: 100.0
+  hidden_dim: 2048
+  dropout: 0.3
+  learning_rate: 1.0e-4
+  epochs: 100
+  batch_size: 256
+
+# Evaluation
+evaluation:
+  metrics: ["voxelwise_correlation", "pattern_correlation", "two_vs_two"]
+  noise_ceiling_corrected: true
+  roi_analysis: true
+  run_feature_sweep: true
+  feature_backbones: ["clip", "dinov2", "clip_dinov2"]
+
+# Optuna sweep
+sweep:
+  shared_space:
+    study_name: "shared_space_optuna_friston24_spike"
+    n_trials: 50
+    timeout_sec: null
+    storage: null
+    direction: "maximize"
+    metric: "median_r"
+    alpha_min: 1.0e-2
+    alpha_max: 1.0e4
+    n_components_min: 20
+    n_components_max: 300
+    n_components_step: 10
+    loso_train_subjects: [1, 2, 3, 4, 5, 6]
+    fixed_eval_size: 200
+    eval_split_seed: 42
+    cleanup_trial_artifacts: true
+    retrain_best: true

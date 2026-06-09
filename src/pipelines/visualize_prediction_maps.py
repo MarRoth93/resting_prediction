@@ -3,6 +3,8 @@ Render side-by-side brain activation maps:
 ground truth vs zero-shot prediction vs best few-shot prediction.
 """
 
+from __future__ import annotations
+
 import argparse
 import csv
 import json

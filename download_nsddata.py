@@ -16,13 +16,18 @@ Usage:
     python download_nsddata.py --only-rest        # download only REST data
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -31,6 +36,7 @@ logger = logging.getLogger(__name__)
 SUBJECTS = [1, 2, 3, 4, 5, 6, 7]
 S3_BASE = "s3://natural-scenes-dataset"
 AWS_SIGNED_REQUEST = False
+DOWNLOAD_REST_MOTION = True
 DEFAULT_OUTPUT_ROOT = Path(os.environ.get("NSD_SHARED_DATA_ROOT", "/scratch_shared/rothermm/brain-diffuser/data"))
 
 
@@ -38,6 +44,9 @@ def run_cmd(cmd: str, description: str = "") -> bool:
     """Run a shell command, return True if successful."""
     if description:
         logger.info(description)
+    if cmd.strip().startswith("aws ") and shutil.which("aws") is None:
+        logger.warning("AWS CLI is not available on PATH; cannot run: %s", cmd)
+        return False
     if cmd.strip().startswith("aws ") and not AWS_SIGNED_REQUEST and "--no-sign-request" not in cmd:
         cmd = f"{cmd} --no-sign-request"
     result = os.system(cmd)
@@ -57,6 +66,9 @@ def local_file_ready(path: str, min_bytes: int = 1) -> bool:
 
 def s3_list(path: str) -> list[str]:
     """List files at an S3 path. Returns list of filenames."""
+    if shutil.which("aws") is None:
+        logger.warning("AWS CLI is not available on PATH; cannot list %s", path)
+        return []
     cmd = ["aws", "s3", "ls", path]
     if not AWS_SIGNED_REQUEST:
         cmd.append("--no-sign-request")
@@ -75,6 +87,62 @@ def s3_list(path: str) -> list[str]:
             if len(parts) >= 4:
                 files.append(parts[-1])
     return files
+
+
+def s3_to_https_url(s3_path: str) -> str:
+    """Convert an s3://natural-scenes-dataset/... path to its public HTTPS URL."""
+    prefix = f"{S3_BASE}/"
+    if not s3_path.startswith(prefix):
+        raise ValueError(f"Unsupported S3 path: {s3_path}")
+    key = s3_path[len(prefix):]
+    return f"https://natural-scenes-dataset.s3.amazonaws.com/{key}"
+
+
+def download_s3_file(s3_path: str, local_path: str, description: str = "") -> bool:
+    """Download a public S3 file using AWS CLI when available, else HTTPS."""
+    if description:
+        logger.info(description)
+    out_dir = os.path.dirname(local_path)
+    os.makedirs(out_dir, exist_ok=True)
+
+    if shutil.which("aws") is not None:
+        return run_cmd(f"aws s3 cp {s3_path} {out_dir}", "")
+
+    url = s3_to_https_url(s3_path)
+    tmp_path = f"{local_path}.part"
+    logger.info("    AWS CLI unavailable; downloading via HTTPS: %s", url)
+    try:
+        urllib.request.urlretrieve(url, tmp_path)
+        os.replace(tmp_path, local_path)
+        return True
+    except urllib.error.HTTPError as e:
+        logger.warning("Failed to download %s: HTTP %s", url, e.code)
+    except urllib.error.URLError as e:
+        logger.warning("Failed to download %s: %s", url, e.reason)
+    except OSError as e:
+        logger.warning("Failed to save %s: %s", local_path, e)
+    finally:
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+    return False
+
+
+def local_list(path: str, suffixes: tuple[str, ...] | None = None) -> list[str]:
+    """List local filenames under a directory, optionally filtering by suffix."""
+    local_dir = Path(path)
+    if not local_dir.is_dir():
+        return []
+    files = []
+    for child in local_dir.iterdir():
+        if not child.is_file():
+            continue
+        if suffixes is not None and not child.name.lower().endswith(suffixes):
+            continue
+        files.append(child.name)
+    return sorted(files)
 
 
 def extract_session_run_key(filename: str) -> tuple[int | None, int] | None:
@@ -191,7 +259,22 @@ def download_stimuli():
 # ── 3. Task betas ────────────────────────────────────────────────────────────
 
 def discover_beta_sessions(sub: int) -> list[int]:
-    """Discover available beta sessions for a subject from S3."""
+    """Discover available beta sessions for a subject locally first, then from S3."""
+    local_dir = (
+        f"nsddata_betas/ppdata/subj{sub:02d}/"
+        f"func1pt8mm/betas_fithrf_GLMdenoise_RR/"
+    )
+    local_sessions = []
+    for f in local_list(local_dir, suffixes=(".nii.gz",)):
+        if f.startswith("betas_session") and f.endswith(".nii.gz"):
+            num = f.replace("betas_session", "").replace(".nii.gz", "")
+            try:
+                local_sessions.append(int(num))
+            except ValueError:
+                continue
+    if local_sessions:
+        return sorted(local_sessions)
+
     s3_path = (
         f"{S3_BASE}/nsddata_betas/ppdata/subj{sub:02d}/"
         f"func1pt8mm/betas_fithrf_GLMdenoise_RR/"
@@ -302,17 +385,31 @@ def discover_rest_runs(sub: int) -> list[str]:
     2. Filter for REST-related files (contain 'rest' in name)
     3. If no 'rest' pattern found, check NSD documentation patterns
     """
-    s3_path = (
-        f"{S3_BASE}/nsddata_timeseries/ppdata/subj{sub:02d}/"
+    local_ts_dir = (
+        f"nsddata_timeseries/ppdata/subj{sub:02d}/"
         f"func1pt8mm/timeseries/"
     )
-    all_files = s3_list(s3_path)
+    all_files = local_list(local_ts_dir, suffixes=(".nii.gz",))
+    source = "local"
+    if all_files:
+        logger.info(f"  Subject {sub}: found {len(all_files)} local timeseries files")
+        # If this directory already contains the REST-only subset, use it directly.
+        if all("timeseries_session" in f.lower() for f in all_files):
+            logger.info(f"  Subject {sub}: using local REST timeseries files")
+            return sorted(all_files)
+    else:
+        s3_path = (
+            f"{S3_BASE}/nsddata_timeseries/ppdata/subj{sub:02d}/"
+            f"func1pt8mm/timeseries/"
+        )
+        all_files = s3_list(s3_path)
+        source = "S3"
 
-    if not all_files:
-        logger.warning(f"  Subject {sub}: no timeseries files found at {s3_path}")
-        return []
+        if not all_files:
+            logger.warning(f"  Subject {sub}: no timeseries files found locally or at {s3_path}")
+            return []
 
-    logger.info(f"  Subject {sub}: found {len(all_files)} timeseries files total")
+    logger.info(f"  Subject {sub}: found {len(all_files)} timeseries files total from {source}")
 
     # Build lookup maps for timeseries files
     ts_by_key: dict[tuple[int | None, int], str] = {}
@@ -328,14 +425,22 @@ def discover_rest_runs(sub: int) -> list[str]:
         ts_by_run.setdefault(rid, []).append(f)
 
     # Primary method: design-based REST detection
+    local_design_dir = (
+        f"nsddata_timeseries/ppdata/subj{sub:02d}/"
+        f"func1pt8mm/design/"
+    )
     design_s3_path = (
         f"{S3_BASE}/nsddata_timeseries/ppdata/subj{sub:02d}/"
         f"func1pt8mm/design/"
     )
-    design_files = s3_list(design_s3_path)
+    design_files = local_list(local_design_dir, suffixes=(".tsv",))
+    design_source = "local"
+    if not design_files:
+        design_files = s3_list(design_s3_path)
+        design_source = "S3"
 
     if design_files:
-        logger.info(f"  Subject {sub}: found {len(design_files)} design files")
+        logger.info(f"  Subject {sub}: found {len(design_files)} {design_source} design files")
         rest_files = []
         ambiguous_matches = 0
         unmatched_design = 0
@@ -365,9 +470,30 @@ def discover_rest_runs(sub: int) -> list[str]:
                     unmatched_design += 1
                     continue
 
-            dfile_s3 = f"{design_s3_path}{dfile}"
-            if is_rest_design_file(dfile_s3):
-                rest_files.append(candidate)
+            if design_source == "local":
+                design_path = Path(local_design_dir) / dfile
+                try:
+                    text = design_path.read_text()
+                except OSError as e:
+                    logger.warning(f"Failed to read design file {design_path}: {e}")
+                    continue
+                inspected_values = []
+                for line in text.splitlines():
+                    nums = []
+                    for tok in line.strip().split():
+                        try:
+                            nums.append(float(tok))
+                        except ValueError:
+                            continue
+                    if not nums:
+                        continue
+                    inspected_values.extend(nums[1:] if len(nums) > 1 else nums)
+                if inspected_values and all(abs(v) < 1e-12 for v in inspected_values):
+                    rest_files.append(candidate)
+            else:
+                dfile_s3 = f"{design_s3_path}{dfile}"
+                if is_rest_design_file(dfile_s3):
+                    rest_files.append(candidate)
 
         rest_files = sorted(set(rest_files))
         if rest_files:
@@ -407,17 +533,55 @@ def discover_motion_files_for_rest(sub: int, rest_files: list[str]) -> dict[str,
     Returns a mapping of rest filename -> motion filename. Exact session+run
     matches are preferred. Run-only matching is used only when unambiguous.
     """
+    if not DOWNLOAD_REST_MOTION:
+        logger.info(f"  Subject {sub}: REST motion download disabled")
+        return {}
+
+    local_motion_dir = (
+        f"nsddata_timeseries/ppdata/subj{sub:02d}/"
+        f"func1pt8mm/motion/"
+    )
     motion_s3_path = (
         f"{S3_BASE}/nsddata_timeseries/ppdata/subj{sub:02d}/"
         f"func1pt8mm/motion/"
     )
     motion_files = [
-        f for f in s3_list(motion_s3_path)
+        f for f in local_list(local_motion_dir, suffixes=(".tsv", ".txt"))
         if f.lower().endswith((".tsv", ".txt")) and "motion" in f.lower()
     ]
+    if motion_files:
+        logger.info(f"  Subject {sub}: found {len(motion_files)} local motion files")
+    else:
+        motion_files = [
+            f for f in s3_list(motion_s3_path)
+            if f.lower().endswith((".tsv", ".txt")) and "motion" in f.lower()
+        ]
     if not motion_files:
-        logger.warning(f"  Subject {sub}: no motion files found at {motion_s3_path}")
-        return {}
+        logger.warning(
+            f"  Subject {sub}: no motion files found locally or at {motion_s3_path}"
+        )
+        inferred: dict[str, str] = {}
+        for rest_file in rest_files:
+            key = extract_session_run_key(rest_file)
+            if key is None:
+                logger.warning(
+                    f"  Subject {sub}: cannot infer session/run for REST file {rest_file}; "
+                    "skipping motion match"
+                )
+                continue
+            sess_id, run_id = key
+            if sess_id is None:
+                logger.warning(
+                    f"  Subject {sub}: REST file {rest_file} has no session id; "
+                    "skipping inferred motion filename"
+                )
+                continue
+            inferred[rest_file] = f"motion_session{sess_id:02d}_run{run_id:02d}.tsv"
+        logger.info(
+            f"  Subject {sub}: inferred motion filenames for "
+            f"{len(inferred)}/{len(rest_files)} REST runs"
+        )
+        return inferred
 
     motion_by_key: dict[tuple[int | None, int], list[str]] = {}
     motion_by_run: dict[int, list[str]] = {}
@@ -545,7 +709,7 @@ def download_rest_timeseries():
                 f"{S3_BASE}/nsddata_timeseries/ppdata/subj{sub:02d}/"
                 f"func1pt8mm/motion/{motion_file}"
             )
-            run_cmd(f"aws s3 cp {s3_path} {motion_out_dir}", f"    {motion_file} ({rest_file})")
+            download_s3_file(s3_path, local_path, f"    {motion_file} ({rest_file})")
 
         # Save manifest
         with open(manifest_path, "w") as f:
@@ -564,11 +728,16 @@ def download_rest_timeseries():
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
-    global AWS_SIGNED_REQUEST
+    global AWS_SIGNED_REQUEST, DOWNLOAD_REST_MOTION
 
     parser = argparse.ArgumentParser(description="Download NSD data from AWS S3")
     parser.add_argument("--skip-stimuli", action="store_true", help="Skip 26GB stimuli download")
     parser.add_argument("--skip-rest", action="store_true", help="Skip REST timeseries")
+    parser.add_argument(
+        "--skip-rest-motion",
+        action="store_true",
+        help="Skip matching REST motion files. Useful when running from an existing local dataset.",
+    )
     parser.add_argument("--skip-betas", action="store_true", help="Skip task betas")
     parser.add_argument("--only-rest", action="store_true", help="Download only REST data")
     parser.add_argument(
@@ -583,6 +752,7 @@ def main():
     )
     args = parser.parse_args()
     AWS_SIGNED_REQUEST = args.signed_request
+    DOWNLOAD_REST_MOTION = not args.skip_rest_motion
     output_root = Path(args.output_root).expanduser().resolve()
     output_root.mkdir(parents=True, exist_ok=True)
     os.chdir(output_root)

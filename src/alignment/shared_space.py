@@ -5,6 +5,8 @@ Handles variable voxel counts by operating in k-dimensional component space.
 Supports hybrid_cha (default) and strict_rest_cha experiment modes.
 """
 
+from __future__ import annotations
+
 import logging
 from typing import Optional
 

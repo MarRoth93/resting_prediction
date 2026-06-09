@@ -5,7 +5,7 @@ subjects:
   train: [1, 2, 3, 4, 5, 6]
   test: [7]
 data_root: "."
-raw_data_root: "/scratch_shared/rothermm/brain-diffuser/data"
+raw_data_root: "/media/psycontrol/HDD/Datasets/brain-diffuser/data"
 output_root: "outputs"
 
 # Analysis mask

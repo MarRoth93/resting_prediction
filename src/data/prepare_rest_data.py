@@ -10,6 +10,8 @@ Preprocessing pipeline per run:
 6. Z-score per voxel
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import os
@@ -214,6 +216,17 @@ def _enabled(config_value, default: bool = False) -> bool:
     return bool(config_value)
 
 
+def build_spike_regressors(censor_mask: np.ndarray) -> np.ndarray:
+    """Build one-hot nuisance columns for censored TRs."""
+    mask = np.asarray(censor_mask, dtype=bool).ravel()
+    n_spikes = int(mask.sum())
+    if n_spikes == 0:
+        return np.zeros((mask.shape[0], 0), dtype=np.float32)
+    spikes = np.zeros((mask.shape[0], n_spikes), dtype=np.float32)
+    spikes[np.flatnonzero(mask), np.arange(n_spikes)] = 1.0
+    return spikes
+
+
 def highpass_filter(
     data: np.ndarray,
     cutoff_hz: float,
@@ -245,6 +258,8 @@ def preprocess_rest_run(
     detrend: bool = True,
     highpass_cutoff_hz: float | None = 0.01,
     motion_params: np.ndarray | None = None,
+    motion_censoring_enabled: bool = True,
+    motion_censoring_strategy: str = "drop",
     fd_threshold_mm: float = 0.5,
     max_censored_fraction: float = 0.3,
     nuisance_regressors: np.ndarray | None = None,
@@ -260,6 +275,9 @@ def preprocess_rest_run(
         detrend: apply linear detrending
         highpass_cutoff_hz: high-pass filter cutoff, None to skip
         motion_params: (T, 6) motion parameters for censoring
+        motion_censoring_enabled: whether to drop high-FD TRs
+        motion_censoring_strategy: drop high-FD TRs before regression ("drop") or
+            regress censor spikes first and drop after ("spike_regress_then_drop")
         fd_threshold_mm: FD threshold for censoring
         max_censored_fraction: max fraction of TRs to censor before excluding run
         nuisance_regressors: (T, R) nuisance regressors
@@ -292,17 +310,37 @@ def preprocess_rest_run(
 
     # 4. Motion censoring
     keep_mask = np.ones(T, dtype=bool)
-    if motion_params is not None:
+    censor_mask = np.zeros(T, dtype=bool)
+    strategy = str(motion_censoring_strategy or "drop").strip().lower()
+    if motion_censoring_enabled and motion_params is not None:
         fd = compute_framewise_displacement(motion_params)
         keep_mask = fd <= fd_threshold_mm
+        censor_mask = ~keep_mask
         censored_frac = 1.0 - keep_mask.mean()
         logger.info(f"  Motion censoring: {censored_frac:.1%} TRs censored (FD > {fd_threshold_mm}mm)")
         if censored_frac > max_censored_fraction:
             logger.warning(f"  Excluding run: {censored_frac:.1%} > {max_censored_fraction:.1%} threshold")
             return None
-        data = data[keep_mask]
-        if nuisance_regressors is not None:
-            nuisance_regressors = nuisance_regressors[keep_mask]
+        if strategy in {"drop", "drop_before_regression"}:
+            data = data[keep_mask]
+            if nuisance_regressors is not None:
+                nuisance_regressors = nuisance_regressors[keep_mask]
+        elif strategy in {"spike_regress_then_drop", "spike", "scrub"}:
+            spike_regressors = build_spike_regressors(censor_mask)
+            if spike_regressors.shape[1] > 0:
+                if nuisance_regressors is None:
+                    nuisance_regressors = spike_regressors
+                else:
+                    nuisance_regressors = np.column_stack([nuisance_regressors, spike_regressors])
+                logger.info(
+                    "  Added %d censor spike regressors before dropping censored TRs",
+                    spike_regressors.shape[1],
+                )
+        else:
+            raise ValueError(
+                f"Unknown motion_censoring strategy: {motion_censoring_strategy}. "
+                "Use 'drop' or 'spike_regress_then_drop'."
+            )
 
     # 5. Nuisance regression
     if nuisance_regressors is not None:
@@ -311,6 +349,13 @@ def preprocess_rest_run(
         X = np.column_stack([X, np.ones(X.shape[0])])
         betas = np.linalg.lstsq(X, data, rcond=None)[0]
         data = (data - X @ betas).astype(np.float32)
+
+    if (
+        motion_censoring_enabled
+        and motion_params is not None
+        and strategy in {"spike_regress_then_drop", "spike", "scrub"}
+    ):
+        data = data[keep_mask]
 
     # 6. Z-score per voxel
     if zscore:
@@ -460,6 +505,10 @@ def prepare_rest_data(
             detrend=config.get("detrend", True),
             highpass_cutoff_hz=config.get("highpass_cutoff_hz", 0.01),
             motion_params=motion_params,
+            motion_censoring_enabled=motion_censoring_enabled,
+            motion_censoring_strategy=str(
+                config.get("motion_censoring", {}).get("strategy", "drop")
+            ),
             fd_threshold_mm=config.get("motion_censoring", {}).get("fd_threshold_mm", 0.5),
             max_censored_fraction=config.get("motion_censoring", {}).get("max_censored_fraction", 0.3),
             nuisance_regressors=nuisance_regressors,

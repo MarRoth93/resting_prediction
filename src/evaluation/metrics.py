@@ -2,6 +2,8 @@
 Evaluation metrics for voxel-wise prediction quality.
 """
 
+from __future__ import annotations
+
 import logging
 from collections import Counter
 

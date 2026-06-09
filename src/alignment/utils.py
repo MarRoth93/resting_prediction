@@ -2,6 +2,8 @@
 Alignment utility functions: Procrustes, SVD, column sign alignment.
 """
 
+from __future__ import annotations
+
 import logging
 
 import numpy as np

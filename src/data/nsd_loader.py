@@ -2,6 +2,8 @@
 Unified data loading classes for NSD subjects and features.
 """
 
+from __future__ import annotations
+
 import logging
 import os
 from functools import cached_property

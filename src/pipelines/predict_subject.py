@@ -2,6 +2,8 @@
 Prediction pipeline: zero-shot and few-shot prediction for test subject.
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import os

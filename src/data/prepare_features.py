@@ -4,6 +4,8 @@ Extract stimulus features from NSD images using pretrained vision models.
 Supports: CLIP ViT-L/14, DINOv2 ViT-L/14
 """
 
+from __future__ import annotations
+
 import logging
 import os
 

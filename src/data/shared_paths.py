@@ -5,11 +5,16 @@ from pathlib import Path
 
 
 DEFAULT_SHARED_NSD_DATA_ROOT = Path("/scratch_shared/rothermm/brain-diffuser/data")
+LOCAL_SHARED_NSD_DATA_ROOT = Path("/media/psycontrol/HDD/Datasets/brain-diffuser/data")
 
 
 def default_raw_data_root() -> str:
-    root = os.environ.get("NSD_SHARED_DATA_ROOT", str(DEFAULT_SHARED_NSD_DATA_ROOT))
-    return str(Path(root).expanduser())
+    root = os.environ.get("NSD_SHARED_DATA_ROOT")
+    if root:
+        return str(Path(root).expanduser())
+    if LOCAL_SHARED_NSD_DATA_ROOT.exists():
+        return str(LOCAL_SHARED_NSD_DATA_ROOT)
+    return str(DEFAULT_SHARED_NSD_DATA_ROOT)
 
 
 def default_stimuli_hdf5() -> str:

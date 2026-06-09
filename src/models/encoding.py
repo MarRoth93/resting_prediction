@@ -2,6 +2,8 @@
 SharedSpaceEncoder: Ridge regression from stimulus features to shared-space responses.
 """
 
+from __future__ import annotations
+
 import logging
 import os
 

@@ -2,6 +2,8 @@
 Ablation experiments: few-shot sweep, n_components, feature types.
 """
 
+from __future__ import annotations
+
 import csv
 import json
 import logging

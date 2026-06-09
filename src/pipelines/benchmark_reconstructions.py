@@ -11,6 +11,8 @@ Uses the SDXL-VAE latent workflow:
 4) save side-by-side panels and summary metrics
 """
 
+from __future__ import annotations
+
 import argparse
 import csv
 import json
