@@ -13,6 +13,7 @@ Preprocessing pipeline per run:
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import os
 import re
@@ -22,10 +23,13 @@ import nibabel as nib
 import numpy as np
 from scipy import signal
 
-from src.data.load_atlas import build_analysis_mask
+from src.data.analysis_mask import build_analysis_mask
+from src.config import load_config
 from src.data.shared_paths import default_raw_data_root
 
 logger = logging.getLogger(__name__)
+
+REST_PROVENANCE_VERSION = 1
 
 
 def read_tr_from_nifti(img: nib.Nifti1Image) -> float:
@@ -216,6 +220,129 @@ def _enabled(config_value, default: bool = False) -> bool:
     return bool(config_value)
 
 
+def normalize_rest_preprocessing_config(config: dict | None) -> dict:
+    """Return the preprocessing settings that affect REST numerical values."""
+    config = config or {}
+    motion_raw = config.get("motion_censoring", {}) or {}
+    motion_cfg = motion_raw if isinstance(motion_raw, dict) else {}
+    nuisance_raw = config.get("nuisance_regression", {}) or {}
+    nuisance_cfg = nuisance_raw if isinstance(nuisance_raw, dict) else {}
+    return {
+        "discard_initial_trs": int(config.get("discard_initial_trs", 5)),
+        "detrend": bool(config.get("detrend", True)),
+        "highpass_cutoff_hz": config.get("highpass_cutoff_hz", 0.01),
+        "motion_censoring": {
+            "enabled": _enabled(motion_raw, default=False),
+            "fd_threshold_mm": float(motion_cfg.get("fd_threshold_mm", 0.5)),
+            "max_censored_fraction": float(motion_cfg.get("max_censored_fraction", 0.3)),
+            "strategy": str(motion_cfg.get("strategy", "drop")),
+        },
+        "nuisance_regression": {
+            "enabled": _enabled(nuisance_raw, default=False),
+            "motion_model": str(nuisance_cfg.get("motion_model", "friston24")),
+            "standardize": bool(nuisance_cfg.get("standardize", True)),
+            "require_motion": bool(nuisance_cfg.get("require_motion", False)),
+        },
+        "zscore": bool(config.get("zscore", True)),
+        "min_usable_trs": int(config.get("min_usable_trs", 100)),
+    }
+
+
+def rest_preprocessing_hash(config: dict | None) -> str:
+    normalized = normalize_rest_preprocessing_config(config)
+    payload = json.dumps(normalized, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def array_sha256(array: np.ndarray) -> str:
+    contiguous = np.ascontiguousarray(array)
+    digest = hashlib.sha256()
+    digest.update(str(contiguous.dtype).encode("ascii"))
+    digest.update(json.dumps(contiguous.shape).encode("ascii"))
+    digest.update(contiguous.tobytes())
+    return digest.hexdigest()
+
+
+def build_rest_provenance(
+    *,
+    sub: int,
+    config: dict | None,
+    mask: np.ndarray,
+    source_files: list[str],
+    rest_runs: list[np.ndarray],
+) -> dict:
+    normalized = normalize_rest_preprocessing_config(config)
+    preprocessing_hash = rest_preprocessing_hash(normalized)
+    mask_hash = array_sha256(np.asarray(mask, dtype=bool))
+    run_shapes = [[int(v) for v in run.shape] for run in rest_runs]
+    payload = {
+        "version": REST_PROVENANCE_VERSION,
+        "subject": int(sub),
+        "preprocessing_hash": preprocessing_hash,
+        "mask_sha256": mask_hash,
+        "source_files": list(source_files),
+        "run_shapes": run_shapes,
+    }
+    payload_json = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return {
+        **payload,
+        "provenance_hash": hashlib.sha256(payload_json.encode("utf-8")).hexdigest(),
+        "rest_preprocessing": normalized,
+    }
+
+
+def load_rest_provenance(data_root: str | Path, sub: int) -> dict:
+    path = Path(data_root) / f"subj{int(sub):02d}" / "rest_run_manifest.json"
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Missing REST provenance manifest for subject {sub}: {path}. "
+            "Re-run prepare_rest_data with the experiment config."
+        )
+    with open(path) as f:
+        manifest = json.load(f)
+    provenance = manifest.get("provenance")
+    if not isinstance(provenance, dict):
+        raise ValueError(
+            f"REST manifest for subject {sub} has no provenance block: {path}. "
+            "Re-run prepare_rest_data with the experiment config."
+        )
+    return provenance
+
+
+def validate_rest_provenance(
+    *,
+    data_root: str | Path,
+    sub: int,
+    expected_config: dict | None,
+    expected_mask: np.ndarray,
+    reference_rest_runs: list[np.ndarray] | None = None,
+) -> dict:
+    provenance = load_rest_provenance(data_root, sub)
+    expected_preprocessing = rest_preprocessing_hash(expected_config)
+    actual_preprocessing = str(provenance.get("preprocessing_hash", ""))
+    if actual_preprocessing != expected_preprocessing:
+        raise ValueError(
+            f"Subject {sub}: REST preprocessing provenance mismatch: "
+            f"prepared={actual_preprocessing or '<missing>'}, expected={expected_preprocessing}. "
+            "Use a data root prepared with the same rest_preprocessing config."
+        )
+    expected_mask_hash = array_sha256(np.asarray(expected_mask, dtype=bool))
+    actual_mask_hash = str(provenance.get("mask_sha256", ""))
+    if actual_mask_hash != expected_mask_hash:
+        raise ValueError(
+            f"Subject {sub}: REST mask provenance mismatch: "
+            f"prepared={actual_mask_hash or '<missing>'}, expected={expected_mask_hash}."
+        )
+    if reference_rest_runs is not None:
+        expected_shapes = [[int(v) for v in run.shape] for run in reference_rest_runs]
+        if provenance.get("run_shapes") != expected_shapes:
+            raise ValueError(
+                f"Subject {sub}: REST run shapes do not match provenance: "
+                f"prepared={provenance.get('run_shapes')}, loaded={expected_shapes}."
+            )
+    return provenance
+
+
 def build_spike_regressors(censor_mask: np.ndarray) -> np.ndarray:
     """Build one-hot nuisance columns for censored TRs."""
     mask = np.asarray(censor_mask, dtype=bool).ravel()
@@ -370,7 +497,7 @@ def preprocess_rest_run(
 def prepare_rest_data(
     sub: int,
     data_root: str = default_raw_data_root(),
-    output_root: str = "processed_data",
+    output_root: str = "data/processed",
     config: dict | None = None,
 ) -> dict:
     """
@@ -383,25 +510,7 @@ def prepare_rest_data(
         num_usable_trs: int — total TRs across all kept runs
     """
     if config is None:
-        config = {
-            "discard_initial_trs": 5,
-            "detrend": True,
-            "highpass_cutoff_hz": 0.01,
-            "motion_censoring": {"enabled": True, "fd_threshold_mm": 0.5, "max_censored_fraction": 0.3},
-            "nuisance_regression": {
-                "enabled": False,
-                "motion_model": "none",
-                "standardize": True,
-                "require_motion": False,
-            },
-            "zscore": True,
-            "min_usable_trs": 100,
-        }
-    analysis_mask_config = config.get("analysis_mask", {}) or {}
-    analysis_mask_mode = str(analysis_mask_config.get("mode", "nsdgeneral"))
-    atlas_type = str(analysis_mask_config.get("atlas_type", "combined_rois"))
-    common_label_subjects = analysis_mask_config.get("common_label_subjects")
-    min_voxels_per_parcel = int(analysis_mask_config.get("min_voxels_per_parcel", 10))
+        config = load_config()["rest_preprocessing"]
 
     roi_dir = os.path.join(data_root, f"nsddata/ppdata/subj{sub:02d}/func1pt8mm/roi/")
     ts_dir = os.path.join(data_root, f"nsddata_timeseries/ppdata/subj{sub:02d}/func1pt8mm/timeseries/")
@@ -433,22 +542,17 @@ def prepare_rest_data(
             f"Checked: {ts_dir}"
         )
 
-    # Load mask. By default this is exactly nsdgeneral; optionally restrict to
-    # nsdgeneral voxels that are labeled by the configured atlas.
+    # The frozen pipeline uses the complete nsdgeneral mask.
     nsdgeneral_mask = nib.load(os.path.join(roi_dir, "nsdgeneral.nii.gz")).get_fdata() > 0
     mask, mask_summary = build_analysis_mask(
         sub=sub,
         nsdgeneral_mask=nsdgeneral_mask,
-        mode=analysis_mask_mode,
-        atlas_type=atlas_type,
-        data_root=data_root,
-        common_label_subjects=common_label_subjects,
-        min_voxels_per_parcel=min_voxels_per_parcel,
     )
     num_voxels = int(mask.sum())
 
     # Process each run
     rest_runs = []
+    kept_rest_files = []
     for i, rest_file in enumerate(rest_files):
         logger.info(f"Subject {sub}: processing REST run {i+1}/{len(rest_files)}: {rest_file}")
         img = nib.load(os.path.join(ts_dir, rest_file))
@@ -517,8 +621,13 @@ def prepare_rest_data(
 
         if processed is not None:
             rest_runs.append(processed)
+            kept_rest_files.append(rest_file)
         else:
             logger.warning(f"  Run {rest_file} excluded")
+
+    # Replace prior run files so a rerun that excludes more runs cannot leave stale arrays.
+    for stale_path in Path(out_dir).glob("rest_run*.npy"):
+        stale_path.unlink()
 
     # Save with contiguous indices (no gaps) so loader can enumerate sequentially
     for run_idx, run_data in enumerate(rest_runs):
@@ -538,55 +647,44 @@ def prepare_rest_data(
     with open(os.path.join(out_dir, "rest_analysis_mask_summary.json"), "w") as f:
         json.dump(mask_summary, f, indent=2)
 
+    provenance = build_rest_provenance(
+        sub=sub,
+        config=config,
+        mask=mask,
+        source_files=kept_rest_files,
+        rest_runs=rest_runs,
+    )
+    with open(manifest_path, "w") as f:
+        json.dump(
+            {
+                "rest_runs": kept_rest_files,
+                "subject": int(sub),
+                "provenance": provenance,
+            },
+            f,
+            indent=2,
+        )
+
     return {
         "rest_runs": rest_runs,
         "mask": mask,
         "num_voxels": num_voxels,
         "num_usable_trs": total_trs,
+        "provenance": provenance,
     }
 
 
 if __name__ == "__main__":
     import argparse
-    import yaml
 
     logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser(description="Prepare REST data for one subject")
     parser.add_argument("-sub", "--sub", type=int, required=True, choices=[1, 2, 3, 4, 5, 6, 7])
     parser.add_argument("--data-root", default=default_raw_data_root())
-    parser.add_argument("--output-root", default="processed_data")
+    parser.add_argument("--output-root", default="data/processed")
     parser.add_argument("--config", default="config.yaml")
     args = parser.parse_args()
 
-    cfg = {}
-    if os.path.exists(args.config):
-        with open(args.config) as f:
-            full_cfg = yaml.safe_load(f) or {}
-            cfg = full_cfg.get("rest_preprocessing", {}) or {}
-            mask_cfg = full_cfg.get("analysis_mask", {}) or {}
-            if mask_cfg:
-                alignment_cfg = full_cfg.get("alignment", {}) or {}
-                subject_cfg = full_cfg.get("subjects", {}) or {}
-                common_label_subjects = None
-                if bool(mask_cfg.get("use_common_labels", True)):
-                    common_label_subjects = (
-                        list(subject_cfg.get("train", [])) + list(subject_cfg.get("test", []))
-                    )
-                    if not common_label_subjects:
-                        common_label_subjects = None
-                cfg["analysis_mask"] = {
-                    "mode": mask_cfg.get("mode", "nsdgeneral"),
-                    "atlas_type": mask_cfg.get(
-                        "atlas_type",
-                        alignment_cfg.get("atlas_type", "combined_rois"),
-                    ),
-                    "common_label_subjects": common_label_subjects,
-                    "min_voxels_per_parcel": int(
-                        mask_cfg.get(
-                            "min_voxels_per_parcel",
-                            alignment_cfg.get("min_voxels_per_parcel", 10),
-                        )
-                    ),
-                }
+    cfg = load_config(args.config)["rest_preprocessing"]
 
     prepare_rest_data(args.sub, args.data_root, args.output_root, cfg)

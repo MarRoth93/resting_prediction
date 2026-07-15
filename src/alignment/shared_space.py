@@ -1,14 +1,8 @@
-"""
-SharedSpaceBuilder: Build a shared representational space from multiple subjects.
-
-Handles variable voxel counts by operating in k-dimensional component space.
-Supports hybrid_cha (default) and strict_rest_cha experiment modes.
-"""
+"""REST-aligned shared response space for the frozen external-seed pipeline."""
 
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 import numpy as np
 
@@ -36,16 +30,14 @@ class SharedSpaceBuilder:
         self,
         n_components: int = 50,
         min_k: int = 10,
-        connectivity_mode: str = "parcellation",
-        experiment_mode: str = "hybrid_cha",
         ensemble_method: str = "average",
         max_iters: int = 10,
         tol: float = 1e-5,
     ):
         self.n_components = n_components
         self.min_k = min_k
-        self.connectivity_mode = connectivity_mode
-        self.experiment_mode = experiment_mode
+        self.connectivity_mode = "external_seed_bank"
+        self.experiment_mode = "hybrid_cha"
         self.ensemble_method = ensemble_method
         self.max_iters = max_iters
         self.tol = tol
@@ -63,42 +55,34 @@ class SharedSpaceBuilder:
         self,
         rest_runs: dict[int, list[np.ndarray]],
         task_responses_shared: dict[int, np.ndarray],
-        atlas_masked: dict[int, np.ndarray] | None = None,
-        n_parcels: int | None = None,
+        external_seed_runs: dict[int, list[np.ndarray]],
     ) -> "SharedSpaceBuilder":
         """
         Fit shared space using training subjects.
 
-        hybrid_cha mode:
-        1. REST → connectivity → SVD → P_s (REST only)
+        1. REST and shared seed time series → connectivity → SVD → P_s
         2. Project shared task responses → Z_s = Y_shared @ P_s
         3. Iterative Procrustes → template + rotations R_s
         4. Build calibrated fingerprint template for zero-shot
-
-        strict_rest_cha mode:
-        1. REST → connectivity → SVD → P_s
-        2. Compute fingerprints F_s = C_s @ P_s
-        3. Iterative Procrustes on fingerprints → template + rotations
 
         Args:
             rest_runs: sub_id -> list of (T, V_s) REST arrays
             task_responses_shared: sub_id -> (N_shared, V_s) responses to shared1000
                 Must be in CANONICAL NSD image ID order.
-            atlas_masked: sub_id -> (V_s,) integer parcel labels (for parcellation mode)
-            n_parcels: number of parcels (after harmonization)
+            external_seed_runs: sub_id -> list of (T, R) seed time series
         """
         sub_ids = sorted(rest_runs.keys())
-        logger.info(f"Fitting shared space with subjects {sub_ids}, mode={self.experiment_mode}")
+        if sorted(external_seed_runs) != sub_ids:
+            raise ValueError("external_seed_runs must contain exactly the training subjects")
+        logger.info("Fitting external-seed shared space with subjects %s", sub_ids)
 
         # Step 1: Compute connectivity and bases for all subjects
         connectivity = {}
         for sub_id in sub_ids:
-            logger.info(f"Subject {sub_id}: computing REST connectivity ({self.connectivity_mode})")
+            logger.info("Subject %d: computing external seed connectivity", sub_id)
             C = compute_rest_connectivity(
                 rest_runs[sub_id],
-                mode=self.connectivity_mode,
-                atlas_masked=atlas_masked.get(sub_id) if atlas_masked else None,
-                n_parcels=n_parcels,
+                seed_runs=external_seed_runs[sub_id],
                 ensemble=self.ensemble_method,
             )
             connectivity[sub_id] = C
@@ -119,17 +103,8 @@ class SharedSpaceBuilder:
             self.subject_connectivity[sub_id] = connectivity[sub_id]
             logger.info(f"Subject {sub_id}: basis P shape = {P.shape}")
 
-        # Step 2 & 3: Alignment depends on experiment mode
-        if self.experiment_mode == "hybrid_cha":
-            self._fit_hybrid(sub_ids, task_responses_shared)
-        elif self.experiment_mode == "strict_rest_cha":
-            self._fit_strict_rest(sub_ids)
-        else:
-            raise ValueError(f"Unknown experiment_mode: {self.experiment_mode}")
-
-        # Step 4: Build fingerprint template for zero-shot inference
-        if self.connectivity_mode == "parcellation":
-            self._build_fingerprint_template(sub_ids)
+        self._fit_hybrid(sub_ids, task_responses_shared)
+        self._build_fingerprint_template(sub_ids)
 
         return self
 
@@ -170,40 +145,6 @@ class SharedSpaceBuilder:
         self.template_Z = template
         self.subject_rotations = rotations
 
-    def _fit_strict_rest(self, sub_ids: list[int]):
-        """Strict REST CHA: align using connectivity fingerprints only."""
-        # Compute fingerprints
-        F_all = {}
-        for sub_id in sub_ids:
-            C = self.subject_connectivity[sub_id]
-            P = self.subject_bases[sub_id]
-            F = C @ P  # (R, k) or (V, k)
-            F_all[sub_id] = F
-
-        # Iterative Procrustes on fingerprints
-        template = np.mean(list(F_all.values()), axis=0)
-
-        for iteration in range(self.max_iters):
-            rotations = {}
-            aligned = []
-            for sub_id in sub_ids:
-                R = procrustes_align(F_all[sub_id], template)
-                rotations[sub_id] = R
-                aligned.append(F_all[sub_id] @ R)
-
-            new_template = np.mean(aligned, axis=0)
-            delta = np.linalg.norm(new_template - template) / np.linalg.norm(template)
-            template = new_template
-            logger.info(f"  Procrustes iteration {iteration + 1}: delta = {delta:.6f}")
-
-            if delta < self.tol:
-                break
-
-        self.template_Z = template  # In fingerprint space for strict mode
-        self.subject_rotations = rotations
-        for sub_id in sub_ids:
-            self.subject_fingerprints[sub_id] = F_all[sub_id]
-
     def _build_fingerprint_template(self, sub_ids: list[int]):
         """
         Build calibrated fingerprint template for zero-shot alignment.
@@ -226,8 +167,7 @@ class SharedSpaceBuilder:
     def align_new_subject_zeroshot(
         self,
         rest_runs: list[np.ndarray],
-        atlas_masked: np.ndarray | None = None,
-        n_parcels: int | None = None,
+        external_seed_runs: list[np.ndarray],
     ) -> tuple[np.ndarray, np.ndarray]:
         """
         Align a new subject using only REST data (zero-shot).
@@ -236,18 +176,13 @@ class SharedSpaceBuilder:
             P_new: (V_new, k) basis
             R_new: (k, k) rotation to shared space
         """
-        if self.connectivity_mode != "parcellation":
-            raise ValueError(
-                "Zero-shot alignment requires parcellation mode "
-                "(voxel_correlation produces subject-specific V dimensions)"
-            )
+        if self.template_fingerprint is None:
+            raise ValueError("Missing fingerprint template; re-run shared-space training.")
 
         # Compute connectivity and basis
         C_new = compute_rest_connectivity(
             rest_runs,
-            mode="parcellation",
-            atlas_masked=atlas_masked,
-            n_parcels=n_parcels,
+            seed_runs=external_seed_runs,
             ensemble=self.ensemble_method,
         )
 
@@ -269,9 +204,8 @@ class SharedSpaceBuilder:
         self,
         rest_runs: list[np.ndarray],
         task_fmri_shared: np.ndarray,
+        external_seed_runs: list[np.ndarray],
         shot_indices: np.ndarray | None = None,
-        atlas_masked: np.ndarray | None = None,
-        n_parcels: int | None = None,
     ) -> tuple[np.ndarray, np.ndarray]:
         """
         Align a new subject using REST + shared task responses (few-shot).
@@ -282,31 +216,15 @@ class SharedSpaceBuilder:
             shot_indices: (N_shot,) indices into the shared stimulus set,
                 used to select corresponding rows from template_Z.
                 If None, assumes first N_shot stimuli (for backward compat).
-            atlas_masked: optional, for parcellation connectivity
-            n_parcels: optional
-
         Returns:
             P_new: (V_new, k) basis
             R_new: (k, k) rotation to shared space
 
-        Raises:
-            ValueError: if experiment_mode is strict_rest_cha (template_Z is
-                in fingerprint space, incompatible with task-projected Z_new)
         """
-        if self.experiment_mode == "strict_rest_cha":
-            raise ValueError(
-                "Few-shot alignment is not supported with strict_rest_cha mode. "
-                "In strict mode, template_Z is in fingerprint space (R, k) which "
-                "is incompatible with task-projected Z_new (N_shot, k). "
-                "Use hybrid_cha mode for few-shot prediction, or use zero-shot."
-            )
-
         # Compute basis from REST
         C_new = compute_rest_connectivity(
             rest_runs,
-            mode=self.connectivity_mode,
-            atlas_masked=atlas_masked,
-            n_parcels=n_parcels,
+            seed_runs=external_seed_runs,
             ensemble=self.ensemble_method,
         )
 
@@ -369,10 +287,14 @@ class SharedSpaceBuilder:
         import glob as globmod
 
         data = np.load(os.path.join(output_dir, "builder.npz"), allow_pickle=True)
+        connectivity_mode = str(data["connectivity_mode"])
+        experiment_mode = str(data["experiment_mode"])
+        if connectivity_mode != "external_seed_bank" or experiment_mode != "hybrid_cha":
+            raise ValueError(
+                f"Unsupported shared-space artifact: {connectivity_mode}/{experiment_mode}."
+            )
         builder = cls(
             n_components=int(data["n_components"]),
-            connectivity_mode=str(data["connectivity_mode"]),
-            experiment_mode=str(data["experiment_mode"]),
             min_k=int(data["min_k"]) if "min_k" in data else 10,
             ensemble_method=str(data["ensemble_method"]) if "ensemble_method" in data else "average",
             max_iters=int(data["max_iters"]) if "max_iters" in data else 10,

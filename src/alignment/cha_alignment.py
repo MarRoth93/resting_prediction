@@ -1,7 +1,7 @@
 """
 Connectivity-based Hyperalignment (CHA) for zero-shot subject alignment.
 
-Uses resting-state connectivity fingerprints in parcel space to align
+Uses resting-state connectivity fingerprints in shared seed space to align
 a new subject to the shared space without any task data.
 """
 
@@ -22,8 +22,8 @@ def align_via_connectivity_fingerprint(
     """
     Zero-shot alignment using connectivity fingerprints.
 
-    For parcellation mode:
-      C_new is (R, V_new) — parcel-to-voxel connectivity
+    For the external seed bank:
+      C_new is (R, V_new) — seed-to-voxel connectivity
       P_new is (V_new, k) — REST-derived basis
       F_new = C_new @ P_new → (R, k) — fingerprint in common parcel space
 
@@ -34,7 +34,7 @@ def align_via_connectivity_fingerprint(
 
     Args:
         P_new: (V_new, k) basis for new subject
-        C_new: (R, V_new) parcellation connectivity
+        C_new: (R, V_new) external seed connectivity
         template_fingerprint: (R, k) shared template fingerprint
 
     Returns:

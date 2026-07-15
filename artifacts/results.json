@@ -1,0 +1,34 @@
+{
+  "release": "tribe_static_transformer_v1",
+  "selection": {
+    "trial": 13,
+    "subjects": [1, 2, 3, 4, 5, 6],
+    "metric": "mean_loso_median_voxelwise_correlation",
+    "score": 0.18128718932469687
+  },
+  "robustness": {
+    "seeds": [42, 43, 44, 45, 46],
+    "seed_scores": {
+      "42": 0.18128718932469687,
+      "43": 0.17727564026912054,
+      "44": 0.17577584087848663,
+      "45": 0.17824765294790268,
+      "46": 0.17832947274049124
+    },
+    "mean": 0.1781831592321396,
+    "population_std": 0.0018044025172712318,
+    "minimum": 0.17577584087848663,
+    "maximum": 0.18128718932469687,
+    "ridge_mean": 0.17432394127051035,
+    "mean_delta_vs_ridge": 0.0038592179616292466,
+    "all_seed_means_beat_ridge": true,
+    "seed_subject_win_fraction_vs_ridge": 0.8666666666666667,
+    "paired_sign_flip_p": 0.0625
+  },
+  "protocol": {
+    "fixed_eval_size": 200,
+    "eval_split_seed": 42,
+    "subject_7_used_for_selection": false,
+    "subject_7_already_evaluated": true
+  }
+}

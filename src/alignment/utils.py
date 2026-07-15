@@ -67,7 +67,7 @@ def compute_svd_basis(
     SVD of matrix C -> top-k right singular vectors as basis P.
 
     Args:
-        C: (M, V) matrix (e.g., parcellation connectivity R×V, or V×V)
+        C: (R, V) external seed-to-voxel connectivity matrix
         n_components: desired number of components (ceiling)
         min_k: minimum acceptable k (fail-fast)
         use_randomized: use randomized SVD for large matrices
@@ -86,7 +86,7 @@ def compute_svd_basis(
         raise ValueError(
             f"Effective k={k_actual} < min_k={min_k}. "
             f"Matrix shape=({M}, {V}), max_rank={max_rank}. "
-            f"Use a higher-resolution atlas or voxel_correlation mode."
+            f"Increase the number of shared seeds or lower min_k."
         )
 
     if k_actual < n_components:

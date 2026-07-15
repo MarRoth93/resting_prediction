@@ -1,36 +1,31 @@
-# Predicting Task Activation from Resting State Data — Configuration
+# Frozen production configuration. Subject 7 is evaluation-only.
+release:
+  name: "tribe_static_transformer_v1"
+  status: "frozen"
+  selected_trial: 13
+  selection_subjects: [1, 2, 3, 4, 5, 6]
+  robustness_seeds: [42, 43, 44, 45, 46]
 
-# Data
 subjects:
   train: [1, 2, 3, 4, 5, 6]
   test: [7]
-data_root: "."
-raw_data_root: "/media/psycontrol/HDD/Datasets/brain-diffuser/data"
-output_root: "outputs"
 
-# Analysis mask
-# mode:
-#   nsdgeneral: keep all voxels in NSD's nsdgeneral mask (default/current behavior)
-#   atlas_labeled_only: keep only nsdgeneral voxels with common nonzero atlas labels
-# atlas_type is used only for atlas_labeled_only and must match alignment.atlas_type.
+data_root: "data/processed"
+raw_data_root: "/media/psycontrol/HDD/Datasets/brain-diffuser/data"
+output_root: "artifacts"
+
 analysis_mask:
   mode: "nsdgeneral"
-  atlas_type: "combined_rois"
-  use_common_labels: true
 
-# Feature extraction
 features:
-  type: "clip"  # clip, dinov2, clip_dinov2, vgg16
+  type: "clip"
+  streams: ["clip"]
   clip_model: "ViT-L/14"
-  dinov2_model: "dinov2_vitl14"
   batch_size: 64
   device: "cuda"
 
-# Reproducibility
 random_seed: 42
-fewshot_n_repeats: 5
 
-# REST preprocessing
 rest_preprocessing:
   discard_initial_trs: 5
   detrend: true
@@ -38,89 +33,64 @@ rest_preprocessing:
   motion_censoring:
     enabled: true
     fd_threshold_mm: 0.5
-    max_censored_fraction: 0.3  # exclude run if > 30% censored
+    max_censored_fraction: 0.3
+    strategy: "spike_regress_then_drop"
   nuisance_regression:
-    enabled: false
-    # Requires NSD motion files under nsddata_timeseries/ppdata/subjXX/func1pt8mm/motion/.
-    # Options: none, motion6, motion12, friston24.
-    motion_model: "none"
+    enabled: true
+    motion_model: "friston24"
     standardize: true
-    require_motion: false
+    require_motion: true
   zscore: true
-  min_usable_trs: 100  # minimum total TRs across all runs per subject
+  min_usable_trs: 100
 
-# Alignment
 alignment:
-  n_components: 50
+  n_components: 100
   min_k: 10
-  connectivity_mode: "parcellation"  # parcellation (REQUIRED for zero-shot) or voxel_correlation
-  experiment_mode: "hybrid_cha"  # strict_rest_cha, hybrid_cha, mixed_connectivity
-  atlas_type: "combined_rois"  # kastner, combined_rois, schaefer400
-  atlas_harmonize: "intersection"
-  min_voxels_per_parcel: 10
-  min_labeled_fraction_warn: 0.5
-  ensemble_method: "average"
+  connectivity_mode: "external_seed_bank"
+  experiment_mode: "hybrid_cha"
+  ensemble_method: "concat"
   max_iters: 10
   tol: 1.0e-5
+  external_seed_bank:
+    seed_set: "nsd_roi_seed_bank"
+    min_voxels_per_seed: 10
+    force_recompute: false
 
-# Compute policy
-compute:
-  dtype: "float32"
-  use_randomized_svd: true
-  randomized_svd_oversampling: 10
-  memmap_threshold_gb: 2.0
-
-# Encoding
 encoding:
-  model_type: "ridge"
-  ridge_alpha: 100.0
-  # Neural encoder (stretch goal)
-  hidden_dim: 2048
-  dropout: 0.3
-  learning_rate: 1.0e-4
-  epochs: 100
-  batch_size: 256
+  architecture: "tribe_static_transformer"
+  transformer:
+    d_model: 384
+    n_layers: 8
+    n_heads: 8
+    ff_multiplier: 4.0
+  dropout: 0.20
+  learning_rate: 2.084109344364613e-4
+  weight_decay: 3.0201957739732042e-5
+  batch_size: 512
+  max_epochs: 200
+  patience: 20
+  val_fraction: 0.10
+  val_metric: "pearson"
+  validation_mode: "stimulus_grouped"
+  standardize_targets: true
+  device: "cuda"
 
-# Evaluation
 evaluation:
-  metrics: ["voxelwise_correlation", "pattern_correlation", "two_vs_two"]
-  noise_ceiling_method: "split_half"
-  reliability_thresholds: [0.0, 0.1, 0.3]  # all, reliable, high-SNR
-  nc_floor: 0.1  # floor for normalized performance ratio
-  fixed_eval_size: 250  # held-out rows fixed across N_shots and seeds
+  fixed_eval_size: 200
   eval_split_seed: 42
-  fewshot_shots: [0, 10, 25, 50, 100, 250, 500, 750]
-  run_feature_sweep: true
-  feature_backbones: ["clip", "dinov2", "clip_dinov2"]
-  statistics:
-    ci_level: 95.0
-    n_bootstrap: 5000
-    n_permutations: 10000
-    permutation_metric: "median_r"
-    permutation_reference_condition: 0
-    fdr_alpha: 0.05
+  reliability_thresholds: [0.0, 0.1, 0.3]
 
-# Hyperparameter sweeps
-sweep:
-  shared_space:
-    study_name: "shared_space_optuna_v2"
-    output_dir: "outputs/hparam_sweeps/shared_space"
-    n_trials: 80
-    timeout: null
-    sampler_seed: 42
-    cleanup_trial_artifacts: true
-    retrain_best: true
-    pruner:
-      type: "median"          # median, none
-      n_startup_trials: 5
-      n_warmup_steps: 5
-      interval_steps: 1
-    search_space:
-      ridge_alpha:
-        min: 1.0e-2
-        max: 1.0e5
-        log: true
-      n_components:
-        min: 20
-        max: 200
-        step: 5
+reconstruction:
+  fmri_scale: 300.0
+  ridge_max_iter: 50000
+  vdvae_alpha: 50000.0
+  cliptext_alpha: 100000.0
+  clipvision_alpha: 60000.0
+  vdvae_chunk_size: 2048
+  vdvae_batch_size: 8
+  precision: "fp16"
+  vd_strength: 0.5
+  vd_mixing: 0.2
+  vd_guidance_scale: 20.0
+  vd_ddim_steps: 50
+  vd_ddim_eta: 0.0

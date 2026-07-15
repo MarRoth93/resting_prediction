@@ -11,18 +11,17 @@ import os
 import numpy as np
 
 from src.alignment.shared_space import SharedSpaceBuilder
-from src.data.load_atlas import atlas_utilization_summary
+from src.config import load_config
 from src.data.nsd_loader import NSDFeatures, NSDSubjectData
+from src.data.shared_paths import default_raw_data_root
 from src.evaluation.metrics import (
     noise_ceiling_split_half,
     pattern_correlation,
     two_vs_two_accuracy,
     voxelwise_correlation,
 )
-from src.models.encoding import SharedSpaceEncoder, fine_tune_encoder
-from src.pipelines.eval_split import (
-    load_or_create_fixed_eval_split,
-)
+from src.models.encoding_factory import load_encoder
+from src.pipelines.eval_split import fixed_eval_indices
 
 logger = logging.getLogger(__name__)
 
@@ -140,102 +139,38 @@ def _compute_noise_ceiling_and_reliability_metrics(
     return out
 
 
-def _atlas_label_split_metrics(
-    voxel_corrs: np.ndarray,
-    atlas_masked: np.ndarray | None,
-) -> dict:
-    """
-    Summarize voxelwise performance for atlas-labeled and unlabeled voxels.
-
-    This supports the nsdgeneral-vs-atlas-labeled A/B check: in the default
-    nsdgeneral mode, unlabeled voxels can still be modeled, but they should be
-    reported separately from voxels that participate in the parcel system.
-    """
-    if atlas_masked is None:
-        return {}
-    atlas_masked = np.asarray(atlas_masked)
-    if atlas_masked.shape[0] != voxel_corrs.shape[0]:
-        raise ValueError(
-            f"Atlas/correlation length mismatch: atlas={atlas_masked.shape[0]}, "
-            f"voxel_corrs={voxel_corrs.shape[0]}."
-        )
-
-    out: dict[str, float | int] = {}
-    groups = {
-        "atlas_labeled": atlas_masked > 0,
-        "atlas_unlabeled": atlas_masked == 0,
-    }
-    for name, mask in groups.items():
-        n_voxels = int(mask.sum())
-        out[f"{name}_n_voxels"] = n_voxels
-        if n_voxels == 0:
-            continue
-        vals = voxel_corrs[mask]
-        out[f"{name}_median_r"] = float(np.median(vals))
-        out[f"{name}_mean_r"] = float(np.mean(vals))
-    return out
-
-
-def _load_parcellation_artifacts(
-    builder: SharedSpaceBuilder,
+def _load_external_seed_runs(
     test_subj: NSDSubjectData,
     test_sub: int,
     model_dir: str,
-) -> tuple[np.ndarray | None, int | None, dict | None]:
-    """
-    Load and validate atlas artifacts when parcellation connectivity is used.
-    """
-    if builder.connectivity_mode != "parcellation":
-        return None, None, None
+    data_root: str,
+    raw_data_root: str,
+) -> list[np.ndarray]:
+    """Load/prepare prediction-time seed runs for external_seed_bank models."""
+    from src.alignment.external_seed_bank import (
+        load_external_seed_info,
+        load_or_prepare_external_seed_runs,
+    )
 
-    atlas_path = os.path.join(model_dir, f"atlas_masked_{test_sub}.npy")
-    if not os.path.exists(atlas_path):
-        raise FileNotFoundError(
-            f"Missing atlas artifact for subject {test_sub}: {atlas_path}. "
-            "Re-run shared-space training with parcellation mode."
-        )
-    atlas_masked = np.load(atlas_path)
-
-    atlas_info_path = os.path.join(model_dir, "atlas_info.npz")
-    if not os.path.exists(atlas_info_path):
-        raise FileNotFoundError(
-            f"Missing atlas_info.npz in {model_dir}. "
-            "Re-run shared-space training to save harmonized atlas metadata."
-        )
-    n_parcels = int(np.load(atlas_info_path)["n_parcels"])
-
-    expected_v = int(test_subj.test_fmri.shape[1])
-    if atlas_masked.ndim != 1:
-        raise ValueError(
-            f"atlas_masked for subject {test_sub} must be 1D, got shape {atlas_masked.shape}."
-        )
-    if int(atlas_masked.shape[0]) != expected_v:
-        raise ValueError(
-            f"Atlas-mask mismatch for subject {test_sub}: "
-            f"atlas length={atlas_masked.shape[0]}, test_fmri voxels={expected_v}."
-        )
-    if np.any(atlas_masked < 0) or np.any(atlas_masked > n_parcels):
-        raise ValueError(
-            f"Subject {test_sub}: atlas labels must be in [0, {n_parcels}] after harmonization."
-        )
-
-    atlas_summary = atlas_utilization_summary(
-        atlas_masked=atlas_masked,
-        n_parcels=n_parcels,
-        sub_id=test_sub,
-        min_labeled_fraction_warn=0.0,  # log structure warnings only at inference
+    seed_set, seed_defs, rest_cfg = load_external_seed_info(model_dir)
+    seed_runs = load_or_prepare_external_seed_runs(
+        sub=test_sub,
+        data_root=data_root,
+        raw_data_root=raw_data_root,
+        pred_mask=test_subj.mask,
+        seed_defs=seed_defs,
+        rest_cfg=rest_cfg,
+        seed_set=seed_set,
+        reference_rest_runs=test_subj.rest_runs,
     )
     logger.info(
-        "Subject %d atlas utilization: labeled_fraction=%.3f, parcels_present=%d/%d",
+        "Subject %d external seed bank: seed_set=%s, runs=%d, seeds=%d",
         test_sub,
-        atlas_summary["labeled_fraction"],
-        atlas_summary["n_parcels_present"],
-        n_parcels,
+        seed_set,
+        len(seed_runs),
+        len(seed_defs),
     )
-    for warning in atlas_summary["warnings"]:
-        logger.warning(warning)
-
-    return atlas_masked, n_parcels, atlas_summary
+    return seed_runs
 
 
 def _resolve_fewshot_support_candidates(
@@ -261,12 +196,7 @@ def _resolve_fewshot_support_candidates(
 
     shared_idx_path = os.path.join(model_dir, "shared_stim_idx.npy")
     if not os.path.exists(shared_idx_path):
-        logger.warning(
-            "Missing shared_stim_idx.npy in %s; falling back to legacy few-shot row mapping.",
-            model_dir,
-        )
-        legacy_rows = np.arange(test_stim_idx.shape[0], dtype=np.int64)
-        return legacy_rows, legacy_rows.copy(), "legacy_all_rows"
+        raise FileNotFoundError(f"Missing required shared stimulus artifact: {shared_idx_path}")
 
     shared_stim_idx = np.asarray(np.load(shared_idx_path), dtype=np.int64).ravel()
     if shared_stim_idx.size == 0:
@@ -327,14 +257,11 @@ def _sample_support_shots(
 
 def predict_zero_shot(
     test_sub: int = 7,
-    model_dir: str = "outputs/shared_space",
-    data_root: str = "processed_data",
-    feature_type: str = "clip",
-    output_dir: str = "outputs/predictions",
-    use_fixed_eval_split: bool = True,
-    fixed_eval_size: int = 250,
-    eval_split_seed: int = 42,
-    reliability_thresholds: list[float] | tuple[float, ...] | None = None,
+    config_path: str = "config.yaml",
+    model_dir: str = "artifacts/model",
+    data_root: str = "data/processed",
+    raw_data_root: str = default_raw_data_root(),
+    output_dir: str = "artifacts/predictions",
 ) -> dict:
     """
     Zero-shot prediction using only REST data from test subject.
@@ -342,10 +269,16 @@ def predict_zero_shot(
     Returns dict with predictions, metrics, and metadata.
     """
     logger.info(f"Zero-shot prediction for subject {test_sub}")
+    config = load_config(config_path)
+    feature_type = str(config["features"]["type"])
+    evaluation_cfg = config["evaluation"]
+    fixed_eval_size = int(evaluation_cfg["fixed_eval_size"])
+    eval_split_seed = int(evaluation_cfg["eval_split_seed"])
+    reliability_thresholds = evaluation_cfg["reliability_thresholds"]
 
     # Load model
     builder = SharedSpaceBuilder.load(model_dir)
-    encoder = SharedSpaceEncoder.load(os.path.join(model_dir, "encoder.npz"))
+    encoder = load_encoder(model_dir)
 
     # Load test subject data
     test_subj = NSDSubjectData(test_sub, data_root)
@@ -354,35 +287,27 @@ def predict_zero_shot(
     _validate_feature_indices(test_subj, features, feature_type)
     reliability_thresholds = _parse_reliability_thresholds(reliability_thresholds)
 
-    # Load/validate atlas artifacts for parcellation mode
-    atlas_masked, n_parcels, atlas_summary = _load_parcellation_artifacts(
-        builder=builder,
+    external_seed_runs = _load_external_seed_runs(
         test_subj=test_subj,
         test_sub=test_sub,
         model_dir=model_dir,
+        data_root=data_root,
+        raw_data_root=raw_data_root,
     )
 
     # Align test subject (zero-shot)
     P_new, R_new = builder.align_new_subject_zeroshot(
         rest_runs=test_subj.rest_runs,
-        atlas_masked=atlas_masked,
-        n_parcels=n_parcels,
+        external_seed_runs=external_seed_runs,
     )
 
     # Predict
     n_shared = int(len(test_subj.test_stim_idx))
-    eval_split_meta = None
-    eval_split_path = None
-    if use_fixed_eval_split:
-        eval_indices, eval_split_meta, eval_split_path = load_or_create_fixed_eval_split(
-            model_dir=model_dir,
-            test_sub=test_sub,
-            n_shared=n_shared,
-            eval_size=fixed_eval_size,
-            seed=eval_split_seed,
-        )
-    else:
-        eval_indices = np.arange(n_shared, dtype=np.int64)
+    eval_indices = fixed_eval_indices(
+        n_shared=n_shared,
+        eval_size=fixed_eval_size,
+        seed=eval_split_seed,
+    )
 
     X_test = features.get_features(test_subj.test_stim_idx, feature_type)
     Y_pred_full = encoder.predict_voxels(X_test, P_new, R_new)
@@ -401,23 +326,14 @@ def predict_zero_shot(
         "n_stimuli": int(Y_true.shape[0]),
         "n_stimuli_total": int(n_shared),
         "n_eval": int(len(eval_indices)),
-        "eval_split_mode": "fixed" if use_fixed_eval_split else "all_rows",
+        "eval_split_mode": "fixed",
         "eval_indices": eval_indices.astype(np.int64).tolist(),
         "mode": "zero_shot",
+        "encoder_type": str(encoder.encoder_type),
     }
-    if eval_split_meta is not None:
-        metrics["eval_split_seed"] = int(eval_split_meta["seed"])
-        metrics["eval_split_size"] = int(eval_split_meta["eval_size"])
-        metrics["eval_split_source"] = str(eval_split_meta["source"])
-    if eval_split_path is not None:
-        metrics["eval_split_path"] = eval_split_path
-    if atlas_summary is not None:
-        metrics.update({
-            "atlas_labeled_fraction": float(atlas_summary["labeled_fraction"]),
-            "atlas_n_parcels_present": int(atlas_summary["n_parcels_present"]),
-            "atlas_n_parcels_expected": int(atlas_summary["n_parcels_expected"]),
-        })
-    metrics.update(_atlas_label_split_metrics(voxel_corrs, atlas_masked))
+    metrics["eval_split_seed"] = eval_split_seed
+    metrics["eval_split_size"] = fixed_eval_size
+    metrics["eval_split_source"] = "config"
 
     metrics.update(
         _compute_noise_ceiling_and_reliability_metrics(
@@ -442,16 +358,12 @@ def predict_zero_shot(
 def predict_few_shot(
     test_sub: int = 7,
     n_shots: int = 100,
-    model_dir: str = "outputs/shared_space",
-    data_root: str = "processed_data",
-    feature_type: str = "clip",
-    fine_tune: bool = False,
+    config_path: str = "config.yaml",
+    model_dir: str = "artifacts/model",
+    data_root: str = "data/processed",
+    raw_data_root: str = default_raw_data_root(),
     seed: int = 42,
-    output_dir: str = "outputs/predictions",
-    use_fixed_eval_split: bool = True,
-    fixed_eval_size: int = 250,
-    eval_split_seed: int = 42,
-    reliability_thresholds: list[float] | tuple[float, ...] | None = None,
+    output_dir: str = "artifacts/predictions",
 ) -> dict:
     """
     Few-shot prediction using N shared-stimuli responses from test subject.
@@ -460,10 +372,16 @@ def predict_few_shot(
         seed: random seed for shot/eval split
     """
     logger.info(f"Few-shot prediction: sub={test_sub}, n_shots={n_shots}, seed={seed}")
+    config = load_config(config_path)
+    feature_type = str(config["features"]["type"])
+    evaluation_cfg = config["evaluation"]
+    fixed_eval_size = int(evaluation_cfg["fixed_eval_size"])
+    eval_split_seed = int(evaluation_cfg["eval_split_seed"])
+    reliability_thresholds = evaluation_cfg["reliability_thresholds"]
 
     # Load model
     builder = SharedSpaceBuilder.load(model_dir)
-    encoder = SharedSpaceEncoder.load(os.path.join(model_dir, "encoder.npz"))
+    encoder = load_encoder(model_dir)
 
     # Load test subject
     test_subj = NSDSubjectData(test_sub, data_root)
@@ -472,12 +390,12 @@ def predict_few_shot(
     _validate_feature_indices(test_subj, features, feature_type)
     reliability_thresholds = _parse_reliability_thresholds(reliability_thresholds)
 
-    # Load/validate atlas artifacts for parcellation mode
-    atlas_masked, n_parcels, atlas_summary = _load_parcellation_artifacts(
-        builder=builder,
+    external_seed_runs = _load_external_seed_runs(
         test_subj=test_subj,
         test_sub=test_sub,
         model_dir=model_dir,
+        data_root=data_root,
+        raw_data_root=raw_data_root,
     )
 
     # Split: support shots from train pool, evaluation from fixed held-out rows
@@ -494,55 +412,24 @@ def predict_few_shot(
         int(support_candidates.size),
     )
 
-    eval_split_meta = None
-    eval_split_path = None
-    if use_fixed_eval_split:
-        eval_indices, eval_split_meta, eval_split_path = load_or_create_fixed_eval_split(
-            model_dir=model_dir,
-            test_sub=test_sub,
-            n_shared=n_shared,
-            eval_size=fixed_eval_size,
-            seed=eval_split_seed,
+    eval_indices = fixed_eval_indices(
+        n_shared=n_shared,
+        eval_size=fixed_eval_size,
+        seed=eval_split_seed,
+    )
+    support_mask = ~np.isin(support_candidates, eval_indices, assume_unique=False)
+    support_pool_rows = support_candidates[support_mask]
+    support_pool_template_rows = support_template_candidates[support_mask]
+    if support_pool_rows.size == 0:
+        raise ValueError(
+            "No few-shot rows remain in the shared-support pool after applying fixed eval split."
         )
-        support_mask = ~np.isin(support_candidates, eval_indices, assume_unique=False)
-        support_pool_rows = support_candidates[support_mask]
-        support_pool_template_rows = support_template_candidates[support_mask]
-        if support_pool_rows.size == 0:
-            raise ValueError(
-                "No few-shot rows remain in the shared-support pool after applying fixed eval split."
-            )
-        shot_indices, template_shot_indices, actual_shots = _sample_support_shots(
-            support_rows=support_pool_rows,
-            template_rows=support_pool_template_rows,
-            n_shots=n_shots,
-            seed=seed,
-        )
-    else:
-        min_eval = 50  # minimum stimuli reserved for evaluation
-        max_shots = n_shared - min_eval
-        if max_shots < 1:
-            raise ValueError(
-                f"Not enough shared stimuli for few-shot: n_shared={n_shared}, "
-                f"need at least {min_eval + 1} (min_eval={min_eval} + 1 shot)"
-            )
-        support_pool_rows = support_candidates
-        support_pool_template_rows = support_template_candidates
-        if support_pool_rows.size == 0:
-            raise ValueError("Few-shot support pool is empty.")
-        max_shots = int(min(int(max_shots), int(support_pool_rows.size)))
-        if max_shots < 1:
-            raise ValueError(
-                f"Not enough support rows for few-shot after constraints: "
-                f"support_pool={int(support_pool_rows.size)}, max_shots={max_shots}."
-            )
-        requested_shots = int(min(int(n_shots), max_shots))
-        shot_indices, template_shot_indices, actual_shots = _sample_support_shots(
-            support_rows=support_pool_rows,
-            template_rows=support_pool_template_rows,
-            n_shots=requested_shots,
-            seed=seed,
-        )
-        eval_indices = np.setdiff1d(np.arange(n_shared), shot_indices, assume_unique=False)
+    shot_indices, template_shot_indices, actual_shots = _sample_support_shots(
+        support_rows=support_pool_rows,
+        template_rows=support_pool_template_rows,
+        n_shots=n_shots,
+        seed=seed,
+    )
 
     shared_fmri = np.array(test_subj.test_fmri, dtype=np.float32)[shot_indices]
 
@@ -551,22 +438,13 @@ def predict_few_shot(
         rest_runs=test_subj.rest_runs,
         task_fmri_shared=shared_fmri,
         shot_indices=template_shot_indices,
-        atlas_masked=atlas_masked,
-        n_parcels=n_parcels,
+        external_seed_runs=external_seed_runs,
     )
-
-    # Optionally fine-tune encoder
-    enc = encoder
-    if fine_tune:
-        shot_stim_idx = test_subj.test_stim_idx[shot_indices]
-        X_shared = features.get_features(shot_stim_idx, feature_type)
-        Z_shared = shared_fmri @ P_new @ R_new
-        enc = fine_tune_encoder(encoder, X_shared, Z_shared)
 
     # Predict on held-out
     eval_stim_idx = test_subj.test_stim_idx[eval_indices]
     X_test = features.get_features(eval_stim_idx, feature_type)
-    Y_pred = enc.predict_voxels(X_test, P_new, R_new)
+    Y_pred = encoder.predict_voxels(X_test, P_new, R_new)
     Y_true = np.array(test_subj.test_fmri, dtype=np.float32)[eval_indices]
 
     # Evaluate
@@ -580,29 +458,19 @@ def predict_few_shot(
         "n_eval": int(len(eval_indices)),
         "n_stimuli_total": int(n_shared),
         "seed": seed,
-        "eval_split_mode": "fixed" if use_fixed_eval_split else "complement_random",
+        "eval_split_mode": "fixed",
         "eval_indices": eval_indices.astype(np.int64).tolist(),
         "shot_indices": shot_indices.astype(np.int64).tolist(),
         "shot_template_indices": template_shot_indices.astype(np.int64).tolist(),
         "support_strategy": support_strategy,
         "n_support_candidates": int(support_candidates.size),
         "n_support_pool": int(support_pool_rows.size),
-        "fine_tune": fine_tune,
         "mode": "few_shot",
+        "encoder_type": str(encoder.encoder_type),
     }
-    if eval_split_meta is not None:
-        metrics["eval_split_seed"] = int(eval_split_meta["seed"])
-        metrics["eval_split_size"] = int(eval_split_meta["eval_size"])
-        metrics["eval_split_source"] = str(eval_split_meta["source"])
-    if eval_split_path is not None:
-        metrics["eval_split_path"] = eval_split_path
-    if atlas_summary is not None:
-        metrics.update({
-            "atlas_labeled_fraction": float(atlas_summary["labeled_fraction"]),
-            "atlas_n_parcels_present": int(atlas_summary["n_parcels_present"]),
-            "atlas_n_parcels_expected": int(atlas_summary["n_parcels_expected"]),
-        })
-    metrics.update(_atlas_label_split_metrics(voxel_corrs, atlas_masked))
+    metrics["eval_split_seed"] = eval_split_seed
+    metrics["eval_split_size"] = fixed_eval_size
+    metrics["eval_split_source"] = "config"
     metrics.update(
         _compute_noise_ceiling_and_reliability_metrics(
             subject=test_subj,
@@ -631,50 +499,31 @@ if __name__ == "__main__":
     parser.add_argument("--mode", choices=["zero_shot", "few_shot"], required=True)
     parser.add_argument("--test-sub", type=int, default=7)
     parser.add_argument("--n-shots", type=int, default=100)
-    parser.add_argument("--model-dir", default="outputs/shared_space")
-    parser.add_argument("--data-root", default="processed_data")
-    parser.add_argument("--feature-type", default="clip")
-    parser.add_argument("--fine-tune", action="store_true")
+    parser.add_argument("--config", default="config.yaml")
+    parser.add_argument("--model-dir", default="artifacts/model")
+    parser.add_argument("--data-root", default="data/processed")
+    parser.add_argument("--raw-data-root", default=default_raw_data_root())
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--eval-split-seed", type=int, default=42)
-    parser.add_argument("--fixed-eval-size", type=int, default=250)
-    parser.add_argument("--disable-fixed-eval-split", action="store_true")
-    parser.add_argument(
-        "--reliability-thresholds",
-        default="0.0,0.1,0.3",
-        help="Comma-separated NC thresholds for stratified metrics.",
-    )
-    parser.add_argument("--output-dir", default="outputs/predictions")
+    parser.add_argument("--output-dir", default="artifacts/predictions")
     args = parser.parse_args()
-    reliability_thresholds = [
-        float(x.strip()) for x in args.reliability_thresholds.split(",") if x.strip() != ""
-    ]
-    use_fixed_eval_split = not args.disable_fixed_eval_split
 
     if args.mode == "zero_shot":
         predict_zero_shot(
             test_sub=args.test_sub,
+            config_path=args.config,
             model_dir=args.model_dir,
             data_root=args.data_root,
-            feature_type=args.feature_type,
+            raw_data_root=args.raw_data_root,
             output_dir=args.output_dir,
-            use_fixed_eval_split=use_fixed_eval_split,
-            fixed_eval_size=args.fixed_eval_size,
-            eval_split_seed=args.eval_split_seed,
-            reliability_thresholds=reliability_thresholds,
         )
     else:
         predict_few_shot(
             test_sub=args.test_sub,
             n_shots=args.n_shots,
+            config_path=args.config,
             model_dir=args.model_dir,
             data_root=args.data_root,
-            feature_type=args.feature_type,
-            fine_tune=args.fine_tune,
+            raw_data_root=args.raw_data_root,
             seed=args.seed,
             output_dir=args.output_dir,
-            use_fixed_eval_split=use_fixed_eval_split,
-            fixed_eval_size=args.fixed_eval_size,
-            eval_split_seed=args.eval_split_seed,
-            reliability_thresholds=reliability_thresholds,
         )

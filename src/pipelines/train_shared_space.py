@@ -13,63 +13,31 @@ import random
 from datetime import datetime
 
 import numpy as np
-import yaml
 
 from src.alignment.shared_space import SharedSpaceBuilder
-from src.data.load_atlas import (
-    build_atlas_utilization_report,
-    harmonize_atlas_labels,
-    load_atlas,
-    parcel_qc,
-)
-from src.data.nsd_loader import NSDFeatures, NSDSubjectData
+from src.config import load_config
+from src.data.nsd_loader import NSDFeatures, NSDSubjectData, resolve_feature_streams
 from src.data.shared_paths import default_raw_data_root
-from src.models.encoding import SharedSpaceEncoder
+from src.models.encoding_factory import build_encoder, save_encoder
 
 logger = logging.getLogger(__name__)
 
 
-def _deep_merge_dict(base: dict, overrides: dict) -> dict:
-    """Recursively merge nested dicts; override non-dict leaves."""
-    for key, value in overrides.items():
-        if isinstance(base.get(key), dict) and isinstance(value, dict):
-            _deep_merge_dict(base[key], value)
-        else:
-            base[key] = copy.deepcopy(value)
-    return base
+def _feature_streams_for_training(config: dict, feature_type: str) -> list[str]:
+    features_cfg = config.get("features", {}) or {}
+    return resolve_feature_streams(feature_type, features_cfg.get("streams"))
 
 
-def apply_config_overrides(config: dict, config_overrides: dict | None = None) -> dict:
-    """
-    Return a deep-copied config with optional nested overrides applied.
-
-    This prevents mutation of the loaded base config and supports sweep-time
-    parameter injection (e.g., subjects/alignment/encoding overrides).
-    """
-    if not isinstance(config, dict):
-        raise TypeError(f"config must be dict, got {type(config).__name__}")
-
-    merged = copy.deepcopy(config)
-    if config_overrides is None:
-        return merged
-    if not isinstance(config_overrides, dict):
-        raise TypeError(
-            f"config_overrides must be dict or None, got {type(config_overrides).__name__}"
-        )
-    return _deep_merge_dict(merged, config_overrides)
-
-
-def load_config(config_path: str, config_overrides: dict | None = None) -> dict:
-    """Load YAML config and apply optional deep-merge overrides."""
-    with open(config_path) as f:
-        loaded = yaml.safe_load(f)
-    if loaded is None:
-        loaded = {}
-    if not isinstance(loaded, dict):
-        raise TypeError(
-            f"Expected top-level YAML mapping in {config_path}, got {type(loaded).__name__}"
-        )
-    return apply_config_overrides(loaded, config_overrides=config_overrides)
+def _get_feature_matrix_and_slices(
+    features: NSDFeatures,
+    stim_idx: np.ndarray,
+    feature_type: str,
+    streams: list[str] | None,
+) -> tuple[np.ndarray, dict[str, tuple[int, int]] | None]:
+    if streams is None:
+        return features.get_features(stim_idx, feature_type), None
+    bundle = features.get_feature_bundle(stim_idx, streams)
+    return bundle.array, bundle.slices
 
 
 def set_seeds(seed: int = 42):
@@ -195,23 +163,19 @@ def _build_shared_stimulus_intersection(
 
 def train_pipeline(
     config_path: str = "config.yaml",
-    data_root: str = "processed_data",
+    data_root: str = "data/processed",
     raw_data_root: str = default_raw_data_root(),
-    output_dir: str = "outputs/shared_space",
-    feature_type_override: str | None = None,
-    config_overrides: dict | None = None,
+    output_dir: str = "artifacts/retrained_model",
 ):
     """
     Complete training pipeline.
 
     1. Load all training subjects' data
-    2. Load/harmonize atlas
-    3. Build shared space from REST + shared stimuli
-    4. Train global encoder
-    5. Save model artifacts with provenance
+    2. Build the common external REST seed bank
+    3. Build the shared space from REST + shared stimuli
+    4. Train and save the static transformer
     """
-    # Load config (optionally patched by caller for sweeps).
-    config = load_config(config_path, config_overrides=config_overrides)
+    config = load_config(config_path)
 
     seed = config.get("random_seed", 42)
     set_seeds(seed)
@@ -219,33 +183,12 @@ def train_pipeline(
     train_subs = config["subjects"]["train"]
     n_components = config["alignment"]["n_components"]
     min_k = config["alignment"]["min_k"]
-    connectivity_mode = config["alignment"]["connectivity_mode"]
-    experiment_mode = config["alignment"]["experiment_mode"]
-    atlas_type = config["alignment"]["atlas_type"]
-    analysis_mask_cfg = config.get("analysis_mask", {}) or {}
-    if str(analysis_mask_cfg.get("mode", "nsdgeneral")).lower() == "atlas_labeled_only":
-        mask_atlas_type = str(analysis_mask_cfg.get("atlas_type", atlas_type))
-        if mask_atlas_type != str(atlas_type):
-            raise ValueError(
-                "analysis_mask.atlas_type must match alignment.atlas_type for "
-                f"atlas_labeled_only runs (got {mask_atlas_type} vs {atlas_type})."
-            )
-    min_voxels_per_parcel = int(config["alignment"].get("min_voxels_per_parcel", 10))
-    min_labeled_fraction_warn = float(config["alignment"].get("min_labeled_fraction_warn", 0.5))
-    ridge_alpha = config["encoding"]["ridge_alpha"]
-    config_feature_type = str(config["features"]["type"])
-    feature_type = config_feature_type
-    if feature_type_override is not None:
-        feature_type = str(feature_type_override)
-        config["features"]["type"] = feature_type
-        logger.info(
-            "Overriding feature backbone for training: config=%s, active=%s",
-            config_feature_type,
-            feature_type,
-        )
+    external_seed_cfg = config["alignment"]["external_seed_bank"]
+    feature_type = str(config["features"]["type"])
+    feature_streams = _feature_streams_for_training(config, feature_type)
+    logger.info("Using feature streams for static transformer training: %s", feature_streams)
 
-    logger.info(f"Training pipeline: subjects={train_subs}, mode={experiment_mode}")
-    logger.info(f"  connectivity={connectivity_mode}, atlas={atlas_type}, k={n_components}")
+    logger.info("Training external-seed hybrid alignment for subjects %s, k=%d", train_subs, n_components)
 
     # Step 1: Load data
     subjects = {s: NSDSubjectData(s, data_root) for s in train_subs}
@@ -254,84 +197,49 @@ def train_pipeline(
         _validate_subject_row_contract(subjects[s])
         _validate_feature_contract(subjects[s], features, feature_type)
 
-    # Step 2: Load and harmonize atlas (if parcellation mode)
-    atlas_masked = None
-    n_parcels = None
-    atlas_utilization_report = None
+    # Step 2: Build the common seed definition and matched seed time series.
+    from src.alignment.external_seed_bank import (
+        build_common_seed_defs,
+        load_or_prepare_external_seed_runs,
+    )
 
-    if connectivity_mode == "parcellation":
-        # Load atlas for all subjects (including test subject for harmonization)
-        all_subs = train_subs + config["subjects"]["test"]
-        atlas_maps = {}
-        masks = {}
-        for s in all_subs:
-            atlas_maps[s] = load_atlas(s, atlas_type, raw_data_root)
-            if s in subjects:
-                masks[s] = subjects[s].mask
-            else:
-                # Load mask for test subject too (for harmonization only)
-                masks[s] = np.load(os.path.join(data_root, f"subj{s:02d}/mask.npy"))
-
-        harmonized, common_labels, label_remap = harmonize_atlas_labels(
-            atlas_maps,
-            masks,
-            min_k=min_k,
-            min_voxels_per_parcel=min_voxels_per_parcel,
+    all_subs = train_subs + config["subjects"]["test"]
+    masks = {
+        s: subjects[s].mask
+        if s in subjects
+        else np.load(os.path.join(data_root, f"subj{s:02d}/mask.npy"))
+        for s in all_subs
+    }
+    external_seed_set = str(external_seed_cfg["seed_set"])
+    min_voxels_per_seed = int(external_seed_cfg["min_voxels_per_seed"])
+    external_seed_defs, external_seed_coverage = build_common_seed_defs(
+        seed_set=external_seed_set,
+        raw_data_root=raw_data_root,
+        subjects=all_subs,
+        pred_masks=masks,
+        min_voxels_per_seed=min_voxels_per_seed,
+    )
+    if len(external_seed_defs) < min_k:
+        raise ValueError(
+            f"External seed bank has only {len(external_seed_defs)} seeds, below min_k={min_k}."
         )
-        n_parcels = len(common_labels)
-        logger.info(f"Atlas harmonized: {n_parcels} common parcels")
+    logger.info("External seed bank %s: %d common seeds", external_seed_set, len(external_seed_defs))
 
-        # QC
-        atlas_masked = {}
-        for s in all_subs:
-            atlas_masked[s] = harmonized[s]
-            expected_v = int(masks[s].sum())
-            if int(harmonized[s].shape[0]) != expected_v:
-                raise ValueError(
-                    f"Subject {s}: harmonized atlas length {harmonized[s].shape[0]} "
-                    f"does not match nsdgeneral mask voxels {expected_v}."
-                )
-            if s in subjects:
-                subj_v = int(subjects[s].test_fmri.shape[1])
-                if int(harmonized[s].shape[0]) != subj_v:
-                    raise ValueError(
-                        f"Subject {s}: harmonized atlas length {harmonized[s].shape[0]} "
-                        f"does not match task data voxels {subj_v}."
-                    )
-                if subjects[s].rest_runs:
-                    rest_v = int(subjects[s].rest_runs[0].shape[1])
-                    if int(harmonized[s].shape[0]) != rest_v:
-                        raise ValueError(
-                            f"Subject {s}: harmonized atlas length {harmonized[s].shape[0]} "
-                            f"does not match REST data voxels {rest_v}."
-                        )
-
-            qc = parcel_qc(
-                harmonized[s],
-                n_parcels,
-                s,
-                min_voxels_per_parcel=min_voxels_per_parcel,
-            )
-            for w in qc["warnings"]:
-                logger.warning(w)
-
-        atlas_utilization_report = build_atlas_utilization_report(
-            atlas_masked,
-            n_parcels=n_parcels,
-            min_voxels_per_parcel=min_voxels_per_parcel,
-            min_labeled_fraction_warn=min_labeled_fraction_warn,
+    rest_cfg = config["rest_preprocessing"]
+    external_seed_runs = {
+        s: load_or_prepare_external_seed_runs(
+            sub=s,
+            data_root=data_root,
+            raw_data_root=raw_data_root,
+            pred_mask=masks[s],
+            seed_defs=external_seed_defs,
+            rest_cfg=rest_cfg,
+            seed_set=external_seed_set,
+            reference_rest_runs=subjects[s].rest_runs,
+            force_recompute=bool(external_seed_cfg["force_recompute"]),
         )
-        logger.info(
-            "Atlas utilization: labeled fraction min/median/max = %.3f / %.3f / %.3f",
-            atlas_utilization_report["labeled_fraction_min"],
-            atlas_utilization_report["labeled_fraction_median"],
-            atlas_utilization_report["labeled_fraction_max"],
-        )
-        if atlas_utilization_report["subjects_with_warnings"]:
-            logger.warning(
-                "Atlas utilization warnings for subjects: %s",
-                atlas_utilization_report["subjects_with_warnings"],
-            )
+        for s in train_subs
+    }
 
     # Step 3: Build shared space
     rest_runs = {s: subjects[s].rest_runs for s in train_subs}
@@ -362,13 +270,9 @@ def train_pipeline(
             dtype=np.float32,
         )
 
-    train_atlas = {s: atlas_masked[s] for s in train_subs} if atlas_masked else None
-
     builder = SharedSpaceBuilder(
         n_components=n_components,
         min_k=min_k,
-        connectivity_mode=connectivity_mode,
-        experiment_mode=experiment_mode,
         ensemble_method=config["alignment"]["ensemble_method"],
         max_iters=config["alignment"]["max_iters"],
         tol=config["alignment"]["tol"],
@@ -376,54 +280,61 @@ def train_pipeline(
     builder.fit(
         rest_runs=rest_runs,
         task_responses_shared=task_responses_shared,
-        atlas_masked=train_atlas,
-        n_parcels=n_parcels,
+        external_seed_runs=external_seed_runs,
     )
 
     # Step 4: Prepare training data in shared space
-    X_all, Z_all = [], []
+    X_all, Z_all, sample_groups_all = [], [], []
+    feature_slices = None
     for sub_id in train_subs:
         subj = subjects[sub_id]
-        X = features.get_features(subj.train_stim_idx, feature_type)
+        X, slices = _get_feature_matrix_and_slices(
+            features=features,
+            stim_idx=subj.train_stim_idx,
+            feature_type=feature_type,
+            streams=feature_streams,
+        )
+        if feature_slices is None and slices is not None:
+            feature_slices = slices
         # Project to component space and rotate to shared space
         P = builder.subject_bases[sub_id]
         R = builder.subject_rotations[sub_id]
         Z = np.array(subj.train_fmri, dtype=np.float32) @ P @ R  # (N, k)
         X_all.append(X)
         Z_all.append(Z)
+        sample_groups_all.append(np.asarray(subj.train_stim_idx, dtype=np.int64))
         logger.info(f"Subject {sub_id}: X {X.shape}, Z {Z.shape}")
 
     X_concat = np.concatenate(X_all, axis=0)
     Z_concat = np.concatenate(Z_all, axis=0)
+    sample_groups_concat = np.concatenate(sample_groups_all, axis=0)
     logger.info(f"Pooled training: X {X_concat.shape}, Z {Z_concat.shape}")
 
     # Step 5: Train encoder
-    encoder = SharedSpaceEncoder(alpha=ridge_alpha)
-    encoder.fit(X_concat, Z_concat)
+    encoder = build_encoder(
+        config=config,
+        input_dim=int(X_concat.shape[1]),
+        output_dim=int(Z_concat.shape[1]),
+        feature_slices=feature_slices,
+    )
+    encoder.fit(X_concat, Z_concat, sample_groups=sample_groups_concat)
 
     # Step 6: Save
     os.makedirs(output_dir, exist_ok=True)
     builder.save(output_dir)
-    encoder.save(os.path.join(output_dir, "encoder.npz"))
+    encoder_artifact = save_encoder(encoder, output_dir)
     np.save(os.path.join(output_dir, "shared_stim_idx.npy"), shared_stim_idx)
 
-    # Save atlas info
-    if n_parcels:
-        serializable_label_remap = {int(old): int(new) for old, new in label_remap.items()}
-        np.savez(
-            os.path.join(output_dir, "atlas_info.npz"),
-            common_labels=common_labels,
-            label_remap=json.dumps(serializable_label_remap),
-            n_parcels=n_parcels,
-            atlas_type=atlas_type,
-        )
-        # Save per-subject atlas for inference
-        for s in atlas_masked:
-            np.save(os.path.join(output_dir, f"atlas_masked_{s}.npy"), atlas_masked[s])
-        if atlas_utilization_report is not None:
-            atlas_utilization_report["atlas_type"] = atlas_type
-            with open(os.path.join(output_dir, "atlas_utilization_report.json"), "w") as f:
-                json.dump(atlas_utilization_report, f, indent=2)
+    from src.alignment.external_seed_bank import save_external_seed_info
+
+    save_external_seed_info(
+        output_dir=output_dir,
+        seed_set=external_seed_set,
+        seed_defs=external_seed_defs,
+        coverage_rows=external_seed_coverage,
+        rest_cfg=rest_cfg,
+        min_voxels_per_seed=min_voxels_per_seed,
+    )
 
     # Save provenance metadata
     with open(config_path, "rb") as f:
@@ -440,17 +351,25 @@ def train_pipeline(
         "train_subjects": train_subs,
         "feature_type": feature_type,
         "k_global": builder.k_global,
-        "n_parcels": n_parcels,
         "n_train_samples": X_concat.shape[0],
-        "experiment_mode": experiment_mode,
+        "experiment_mode": builder.experiment_mode,
+        "connectivity_mode": builder.connectivity_mode,
         "shared_stimulus_strategy": "intersection",
         "n_shared_stimuli": int(shared_stim_idx.shape[0]),
         "per_subject_dropped_test_stimuli": {
             str(s): int(dropped_test_counts[s]) for s in train_subs
         },
+        "encoding": {
+            "architecture": str(encoder.architecture),
+            "encoder_artifact": encoder_artifact,
+            "feature_streams": feature_streams,
+            "feature_slices": feature_slices,
+        },
     }
-    if config_overrides is not None:
-        metadata["config_overrides"] = copy.deepcopy(config_overrides)
+    metadata["external_seed_bank"] = {
+        "seed_set": external_seed_set,
+        "n_seeds": int(len(external_seed_defs)),
+    }
     with open(os.path.join(output_dir, "metadata.json"), "w") as f:
         json.dump(metadata, f, indent=2)
 
@@ -464,14 +383,9 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     parser = argparse.ArgumentParser(description="Train shared space model")
     parser.add_argument("--config", default="config.yaml")
-    parser.add_argument("--data-root", default="processed_data")
+    parser.add_argument("--data-root", default="data/processed")
     parser.add_argument("--raw-data-root", default=default_raw_data_root())
-    parser.add_argument("--output-dir", default="outputs/shared_space")
-    parser.add_argument(
-        "--feature-type",
-        default="",
-        help="Optional feature backbone override (e.g., clip, dinov2, clip_dinov2).",
-    )
+    parser.add_argument("--output-dir", default="artifacts/retrained_model")
     args = parser.parse_args()
 
     train_pipeline(
@@ -479,5 +393,4 @@ if __name__ == "__main__":
         args.data_root,
         args.raw_data_root,
         args.output_dir,
-        feature_type_override=(args.feature_type.strip() or None),
     )

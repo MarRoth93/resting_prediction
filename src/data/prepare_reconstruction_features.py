@@ -615,10 +615,14 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     parser = argparse.ArgumentParser(description="Prepare local reconstruction feature bundle for one subject.")
     parser.add_argument("--subject", type=int, required=True)
-    parser.add_argument("--data-root", default="processed_data")
+    parser.add_argument("--data-root", default="data/processed")
     parser.add_argument("--output-dir", default="")
     parser.add_argument("--stimuli-hdf5", default=default_stimuli_hdf5())
-    parser.add_argument("--recon-model-root", default="/home/rothermm/brain-diffuser")
+    parser.add_argument(
+        "--recon-model-root",
+        default="third_party",
+        help="Model root containing vdvae/ and versatile_diffusion/.",
+    )
     parser.add_argument(
         "--vd-weights-path",
         default="",

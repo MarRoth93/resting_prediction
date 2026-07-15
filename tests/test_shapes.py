@@ -12,11 +12,10 @@ from src.evaluation.metrics import (
     pattern_correlation,
     voxelwise_correlation,
 )
-from src.models.encoding import SharedSpaceEncoder
 
 
 class TestSVDBasis:
-    def test_parcellation_shape(self):
+    def test_seed_connectivity_shape(self):
         """P has shape (V, k_actual) with k_actual <= min(R, n_components)."""
         V, R, k = 1000, 25, 50
         C = np.random.randn(R, V).astype(np.float32)
@@ -24,14 +23,6 @@ class TestSVDBasis:
         assert P.shape[0] == V
         assert P.shape[1] <= min(k, R - 1)  # rank-limited
         assert P.shape[1] == 24  # R=25 → max rank 24
-
-    def test_voxel_correlation_shape(self):
-        """P from V×V has k_actual = n_components (no rank limit for large V)."""
-        V, k = 200, 20
-        C = np.random.randn(V, V).astype(np.float32)
-        C = (C + C.T) / 2  # symmetric
-        P = compute_svd_basis(C, n_components=k, min_k=5)
-        assert P.shape == (V, k)
 
     def test_min_k_raises(self):
         """Fail-fast when k_actual < min_k."""
@@ -76,53 +67,32 @@ class TestProcrustes:
 
 
 class TestConnectivity:
-    def test_parcellation_output_shape(self, synthetic_subject):
-        """Parcellation connectivity is (R, V)."""
+    def test_external_seed_bank_output_shape(self, synthetic_subject):
+        """External seed-bank connectivity is (R_seed, V)."""
         d = synthetic_subject
+        seed_runs = [
+            np.random.randn(run.shape[0], 17).astype(np.float32)
+            for run in d["rest_runs"]
+        ]
         C = compute_rest_connectivity(
             d["rest_runs"],
-            mode="parcellation",
-            atlas_masked=d["atlas_masked"],
-            n_parcels=d["R"],
+            seed_runs=seed_runs,
         )
-        assert C.shape == (d["R"], d["V"])
+        assert C.shape == (17, d["V"])
 
-    def test_voxel_correlation_output_shape(self, synthetic_subject):
-        """Voxel connectivity is (V, V)."""
+    def test_external_seed_bank_requires_matched_trs(self, synthetic_subject):
+        """Each seed run must be time-aligned to the matching REST run."""
         d = synthetic_subject
-        C = compute_rest_connectivity(d["rest_runs"], mode="voxel_correlation")
-        assert C.shape == (d["V"], d["V"])
-
-
-class TestEncoder:
-    def test_fit_predict_shapes(self):
-        """Encoder input/output shapes."""
-        N, F, k = 100, 64, 20
-        X = np.random.randn(N, F).astype(np.float32)
-        Z = np.random.randn(N, k).astype(np.float32)
-
-        enc = SharedSpaceEncoder(alpha=1.0)
-        enc.fit(X, Z)
-
-        assert enc.W.shape == (F, k)
-        assert enc.b.shape == (k,)
-
-        Z_pred = enc.predict(X)
-        assert Z_pred.shape == (N, k)
-
-    def test_predict_voxels_shape(self):
-        """predict_voxels returns (N, V)."""
-        N, F, k, V = 50, 64, 20, 500
-        X = np.random.randn(N, F).astype(np.float32)
-        Z = np.random.randn(N, k).astype(np.float32)
-        P = np.random.randn(V, k).astype(np.float32)
-        R = np.eye(k, dtype=np.float32)
-
-        enc = SharedSpaceEncoder(alpha=1.0)
-        enc.fit(X, Z)
-
-        Y_pred = enc.predict_voxels(X, P, R)
-        assert Y_pred.shape == (N, V)
+        seed_runs = [
+            np.random.randn(run.shape[0], 17).astype(np.float32)
+            for run in d["rest_runs"]
+        ]
+        seed_runs[0] = seed_runs[0][:-1]
+        with pytest.raises(ValueError, match="TR mismatch"):
+            compute_rest_connectivity(
+                d["rest_runs"],
+                seed_runs=seed_runs,
+            )
 
 
 class TestMetrics:

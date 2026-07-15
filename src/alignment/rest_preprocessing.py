@@ -1,158 +1,66 @@
-"""
-Compute resting-state connectivity matrices from preprocessed REST runs.
-
-Two modes:
-- parcellation: C is (R, V) — parcel-to-voxel correlation (required for zero-shot CHA)
-- voxel_correlation: C is (V, V) — full voxel correlation (few-shot only)
-"""
+"""Compute external seed-to-voxel connectivity from preprocessed REST runs."""
 
 from __future__ import annotations
 
 import logging
 
 import numpy as np
-from sklearn.covariance import LedoitWolf
 
 logger = logging.getLogger(__name__)
 
 
-def compute_parcel_timeseries(
-    rest_data: np.ndarray,
-    atlas_masked: np.ndarray,
-    n_parcels: int,
-) -> np.ndarray:
-    """
-    Average voxel timeseries within each parcel.
-
-    Args:
-        rest_data: (T, V) preprocessed REST timeseries
-        atlas_masked: (V,) integer parcel labels (1-based, 0=unassigned)
-        n_parcels: number of parcels
-
-    Returns:
-        (T, R) parcel timeseries
-    """
-    T, V = rest_data.shape
-    parcel_ts = np.zeros((T, n_parcels), dtype=np.float32)
-
-    for p in range(1, n_parcels + 1):
-        voxel_mask = atlas_masked == p
-        if voxel_mask.sum() == 0:
-            continue
-        parcel_ts[:, p - 1] = rest_data[:, voxel_mask].mean(axis=1)
-
-    return parcel_ts
-
-
 def compute_rest_connectivity(
     rest_runs: list[np.ndarray],
-    mode: str = "parcellation",
-    atlas_masked: np.ndarray | None = None,
-    n_parcels: int | None = None,
+    seed_runs: list[np.ndarray],
     ensemble: str = "average",
 ) -> np.ndarray:
-    """
-    Compute resting-state connectivity from multiple runs.
-
-    Args:
-        rest_runs: list of (T_run, V) preprocessed arrays
-        mode: 'parcellation' or 'voxel_correlation'
-        atlas_masked: (V,) integer labels, required for parcellation
-        n_parcels: number of parcels, required for parcellation
-        ensemble: 'average' (average per-run connectivity) or 'concat' (concat runs)
-
-    Returns:
-        C: connectivity matrix
-           - parcellation: (R, V) parcel-to-voxel correlation
-           - voxel_correlation: (V, V) voxel-voxel correlation
-
-    Raises:
-        ValueError: if mode='parcellation' and atlas is None
-        ValueError: if mode='voxel_correlation' used without warning about zero-shot
-    """
+    """Return a shared-seed by subject-voxel connectivity matrix."""
     if not rest_runs:
-        raise ValueError("rest_runs is empty — need at least 1 REST run to compute connectivity")
-
-    if mode == "parcellation":
-        if atlas_masked is None or n_parcels is None:
-            raise ValueError("parcellation mode requires atlas_masked and n_parcels")
-        return _compute_parcellation_connectivity(
-            rest_runs, atlas_masked, n_parcels, ensemble
+        raise ValueError("rest_runs is empty; at least one REST run is required")
+    if len(rest_runs) != len(seed_runs):
+        raise ValueError(
+            f"rest_runs and seed_runs must have the same length, got "
+            f"{len(rest_runs)} and {len(seed_runs)}."
         )
-    elif mode == "voxel_correlation":
-        logger.warning(
-            "voxel_correlation mode: CANNOT be used for zero-shot CHA alignment "
-            "(V differs across subjects). Use parcellation mode for zero-shot."
-        )
-        return _compute_voxel_connectivity(rest_runs, ensemble)
-    else:
-        raise ValueError(f"Unknown mode: {mode}")
+    if not seed_runs:
+        raise ValueError("seed_runs is empty")
 
+    n_seeds = int(seed_runs[0].shape[1])
+    n_voxels = int(rest_runs[0].shape[1])
+    for i, (rest, seed) in enumerate(zip(rest_runs, seed_runs), start=1):
+        if rest.ndim != 2 or seed.ndim != 2:
+            raise ValueError(
+                f"Run {i}: rest and seed arrays must both be 2D, got "
+                f"{rest.shape} and {seed.shape}."
+            )
+        if int(rest.shape[0]) != int(seed.shape[0]):
+            raise ValueError(
+                f"Run {i}: rest/seed TR mismatch, rest={rest.shape[0]}, "
+                f"seed={seed.shape[0]}."
+            )
+        if int(rest.shape[1]) != n_voxels:
+            raise ValueError(
+                f"Run {i}: inconsistent rest voxel count {rest.shape[1]} vs {n_voxels}."
+            )
+        if int(seed.shape[1]) != n_seeds:
+            raise ValueError(
+                f"Run {i}: inconsistent seed count {seed.shape[1]} vs {n_seeds}."
+            )
 
-def _compute_parcellation_connectivity(
-    rest_runs: list[np.ndarray],
-    atlas_masked: np.ndarray,
-    n_parcels: int,
-    ensemble: str,
-) -> np.ndarray:
-    """
-    Compute parcel-to-voxel connectivity: C is (R, V).
-
-    For each run: compute correlation between parcel timeseries (T, R)
-    and voxel timeseries (T, V) → (R, V) correlation matrix.
-    """
-    V = rest_runs[0].shape[1]
-
-    if ensemble == "concat":
-        # Concatenate all runs
-        rest_concat = np.concatenate(rest_runs, axis=0)  # (T_total, V)
-        parcel_ts = compute_parcel_timeseries(rest_concat, atlas_masked, n_parcels)  # (T_total, R)
-        C = _correlate(parcel_ts, rest_concat)  # (R, V)
-    elif ensemble == "average":
-        # Average per-run connectivity
-        Cs = []
-        for run in rest_runs:
-            parcel_ts = compute_parcel_timeseries(run, atlas_masked, n_parcels)  # (T, R)
-            C_run = _correlate(parcel_ts, run)  # (R, V)
-            Cs.append(C_run)
-        C = np.mean(Cs, axis=0)
-    else:
-        raise ValueError(f"Unknown ensemble method: {ensemble}")
-
-    logger.info(f"Parcellation connectivity: {C.shape}")
-    return C.astype(np.float32)
-
-
-def _compute_voxel_connectivity(
-    rest_runs: list[np.ndarray],
-    ensemble: str,
-) -> np.ndarray:
-    """
-    Compute voxel-voxel connectivity: C is (V, V).
-
-    Uses Ledoit-Wolf shrinkage for numerical stability.
-    """
     if ensemble == "concat":
         rest_concat = np.concatenate(rest_runs, axis=0)
-        lw = LedoitWolf()
-        cov = lw.fit(rest_concat).covariance_
-        # Convert covariance to correlation
-        d = np.sqrt(np.diag(cov))
-        d[d < 1e-10] = 1e-10
-        C = cov / np.outer(d, d)
+        seed_concat = np.concatenate(seed_runs, axis=0)
+        C = _correlate(seed_concat, rest_concat)
     elif ensemble == "average":
-        Cs = []
-        for run in rest_runs:
-            lw = LedoitWolf()
-            cov = lw.fit(run).covariance_
-            d = np.sqrt(np.diag(cov))
-            d[d < 1e-10] = 1e-10
-            Cs.append(cov / np.outer(d, d))
+        Cs = [
+            _correlate(seed, rest)
+            for rest, seed in zip(rest_runs, seed_runs)
+        ]
         C = np.mean(Cs, axis=0)
     else:
         raise ValueError(f"Unknown ensemble method: {ensemble}")
 
-    logger.info(f"Voxel connectivity: {C.shape}, memory: {C.nbytes / 1e6:.0f} MB")
+    logger.info(f"External seed-bank connectivity: {C.shape}")
     return C.astype(np.float32)
 
 
