@@ -162,6 +162,20 @@ python -m src.data.prepare_reconstruction_features --subject 7 \
   --device cuda
 ```
 
+## Schaefer-400 / FOR Experiment
+
+The dedicated parcel-level training path is kept separate from the frozen voxel
+pipeline. Start with:
+
+```bash
+./run_schaefer400.sh check-for
+./run_schaefer400.sh check-raw
+```
+
+The complete preparation, training, missing-parcel, and zero-shot FOR inference
+contract is documented in
+[docs/SCHAEFER400_FOR_PIPELINE.md](docs/SCHAEFER400_FOR_PIPELINE.md).
+
 ## Development
 
 Run the retained test suite with:

@@ -11,10 +11,12 @@ venv/
 .python-version
 .vscode/
 .idea/
+notebooks/__marimo__/
 .DS_Store
 
 # Retained local data and large model dependencies
 data/processed/
+data/processed_schaefer400/
 third_party/
 
 # Generated artifacts; keep only the frozen result summary in Git

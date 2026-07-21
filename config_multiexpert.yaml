@@ -1,0 +1,102 @@
+# Experimental Stage-1 multi-expert configuration.
+# The frozen production path remains config.yaml + run_pipeline.sh.
+release:
+  name: "tribe_multiexpert_stage1"
+  status: "experimental"
+  stage: 1
+
+subjects:
+  train: [1, 2, 3, 4, 5, 6]
+  loso: [1, 2, 3, 4, 5, 6]
+  locked_test: [7]
+  # Full-model registry. Each LOSO fold replaces this with its five training subjects.
+  # Subject 7 therefore never shapes either training or the seed vocabulary.
+  seed_registry: [1, 2, 3, 4, 5, 6]
+
+data_root: "data/processed"
+raw_data_root: "/media/psycontrol/HDD/Datasets/brain-diffuser/data"
+output_root: "artifacts/multiexpert"
+
+analysis_mask:
+  mode: "nsdgeneral"
+
+features:
+  type: "clip"
+  streams: ["clip"]
+
+random_seed: 42
+
+rest_preprocessing:
+  discard_initial_trs: 5
+  detrend: true
+  highpass_cutoff_hz: 0.01
+  motion_censoring:
+    enabled: true
+    fd_threshold_mm: 0.5
+    max_censored_fraction: 0.3
+    strategy: "spike_regress_then_drop"
+  nuisance_regression:
+    enabled: true
+    motion_model: "friston24"
+    standardize: true
+    require_motion: true
+  zscore: true
+  min_usable_trs: 100
+
+external_seed_bank:
+  seed_set: "nsd_roi_seed_bank"
+  min_voxels_per_seed: 10
+  missing_subject_policy: "zero_fill_and_mask"
+  force_recompute: false
+  ensemble_method: "concat"
+
+experts:
+  order: ["hybrid_cha", "connectivity_srm"]
+  n_components: 100
+  min_k: 10
+  hybrid_cha:
+    max_iters: 10
+    tol: 1.0e-5
+  connectivity_srm:
+    max_iters: 20
+    tol: 1.0e-5
+
+regions:
+  atlas_files: ["lh.HCP_MMP1.nii.gz", "rh.HCP_MMP1.nii.gz"]
+  min_voxels_every_training_subject: 20
+  fallback_name: "fallback"
+
+fusion:
+  backbone:
+    d_model: 384
+    n_layers: 8
+    n_heads: 8
+    ff_multiplier: 4.0
+    dropout: 0.20
+  method_projection_dim: 128
+  transformer_layers: 2
+  transformer_heads: 4
+  transformer_ff_multiplier: 4.0
+  transformer_dropout: 0.10
+  method_dropout: 0.25
+  latent_loss_weight: 0.25
+  learning_rate: 2.084109344364613e-4
+  weight_decay: 3.0201957739732042e-5
+  batch_size: 128
+  max_epochs: 200
+  patience: 20
+  val_fraction: 0.10
+  device: "cuda"
+
+evaluation:
+  fixed_eval_size: 200
+  eval_split_seed: 42
+  fewshot_n: 100
+  reliability_thresholds: [0.0, 0.1, 0.3]
+  robustness_seeds: [42, 43, 44, 45, 46]
+  gate:
+    mode: "zero_shot"
+    minimum_mean_delta_median_r: 0.005
+    minimum_subject_wins: 4
+    maximum_reliable_voxel_regression: 0.002
+    reliability_threshold: 0.3

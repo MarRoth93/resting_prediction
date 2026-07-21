@@ -1,0 +1,98 @@
+# Dedicated Schaefer-400 training path for zero-shot transfer to the FOR data.
+# The existing voxel/HCP-MMP pipeline remains config_multiexpert.yaml.
+release:
+  name: "tribe_multiexpert_schaefer400_for"
+  status: "experimental"
+  stage: 1
+  representation: "schaefer400_parcels"
+
+subjects:
+  train: [1, 2, 3, 4, 5, 6]
+
+data_root: "data/processed_schaefer400"
+raw_data_root: "/media/psycontrol/HDD/Datasets/brain-diffuser/data"
+for_data_root: "/media/psycontrol/HDD/Datasets/FOR/subjects_400_rest"
+output_root: "artifacts/schaefer400_multiexpert"
+
+atlas:
+  name: "Schaefer2018_400Parcels_7Networks_order"
+  n_parcels: 400
+  n_networks: 7
+  nsd_filename: "Schaefer2018_400Parcels_7Networks_order_func1pt8.nii.gz"
+  min_voxels_per_parcel: 20
+  cortical_layers: [1, 2, 3]
+
+features:
+  type: "clip"
+  streams: ["clip"]
+  path: "data/processed/features/clip_features.npy"
+
+random_seed: 42
+
+# Dataset-specific cleanup is followed by the same parcel standardization.
+# FOR already contains a cleaned/filtered parcel time series, so inference does
+# not repeat motion regression that cannot be reconstructed from that export.
+rest_preprocessing:
+  discard_initial_trs: 5
+  detrend: true
+  highpass_cutoff_hz: 0.01
+  motion_censoring:
+    enabled: true
+    fd_threshold_mm: 0.5
+    max_censored_fraction: 0.3
+    strategy: "spike_regress_then_drop"
+  nuisance_regression:
+    enabled: true
+    motion_model: "friston24"
+    standardize: true
+    require_motion: true
+  zscore: true
+  min_usable_trs: 100
+
+parcel_seed_bank:
+  seed_set: "schaefer400_ordered_parcels"
+  missing_subject_policy: "zero_fill_and_mask"
+  ensemble_method: "concat"
+
+experts:
+  order: ["hybrid_cha", "connectivity_srm"]
+  n_components: 100
+  min_k: 10
+  hybrid_cha:
+    max_iters: 10
+    tol: 1.0e-5
+  connectivity_srm:
+    max_iters: 20
+    tol: 1.0e-5
+
+# Each parcel receives its own learned mixture of the two alignment experts.
+regions:
+  grouping: "parcel"
+  n_groups: 400
+
+fusion:
+  backbone:
+    d_model: 384
+    n_layers: 8
+    n_heads: 8
+    ff_multiplier: 4.0
+    dropout: 0.20
+  method_projection_dim: 128
+  transformer_layers: 2
+  transformer_heads: 4
+  transformer_ff_multiplier: 4.0
+  transformer_dropout: 0.10
+  method_dropout: 0.25
+  latent_loss_weight: 0.25
+  learning_rate: 2.084109344364613e-4
+  weight_decay: 3.0201957739732042e-5
+  batch_size: 128
+  max_epochs: 200
+  patience: 20
+  val_fraction: 0.10
+  device: "cuda"
+
+for_inference:
+  timeseries_file: "schaefer400_parcel_timeseries.mat"
+  summary_file: "schaefer400_parcel_summary.tsv"
+  missing_output_value: "nan"
