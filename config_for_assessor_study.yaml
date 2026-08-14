@@ -1,0 +1,42 @@
+study:
+  name: "for_schaefer400_vdvae_assessor"
+  seed: 42
+  output_root: "artifacts/schaefer400_multiexpert/for_assessor_study"
+  primary_dimensions: [valence, arousal, approach, attention, control]
+  exploratory_dimensions: [dominance]
+  groups: [healthy, depressed]
+  permutations: 10000
+  bootstrap_samples: 10000
+
+inputs:
+  nsd_data_root: "data/processed_schaefer400"
+  reconstruction_feature_dir: "data/processed/reconstruction_features/subj07"
+  stimuli_hdf5: "/media/psycontrol/HDD/Datasets/brain-diffuser/data/nsddata_stimuli/stimuli/nsd/nsd_stimuli.hdf5"
+  prediction_selection_dir: "artifacts/schaefer400_multiexpert/prediction_inputs/random_unseen_500_seed42"
+  for_prediction_root: "artifacts/schaefer400_multiexpert/for_predictions/random_unseen_500_seed42"
+  for_reconstruction_root: "artifacts/schaefer400_multiexpert/reconstructions_vdvae/random_unseen_500_seed42"
+  group_csv: "for_groups.csv"
+
+decoder_validation:
+  subjects: [1, 2, 3, 4, 5, 6]
+  alphas: [5000.0, 20000.0, 50000.0, 100000.0, 200000.0]
+  final_fraction: 0.20
+  chunk_size: 2048
+  decode_batch_size: 8
+  output_dir: "artifacts/schaefer400_multiexpert/vdvae_decoder_validation"
+  final_decoder_dir: "artifacts/schaefer400_multiexpert/vdvae_decoder"
+
+assessor:
+  project_root: "/home/psycontrol/Marco/assessor_lab"
+  source_sha256: "6c7591ce208c914ab6e0299fd118feca89dae891aa6d7c54cf4e6bc62b7ffee8"
+  device: "cuda"
+  batch_size: 32
+  interval: 0.90
+  bundles:
+    va:
+      path: "Frozen_models/assessor_va_mixed_v4_bundle.pt"
+      sha256: "304224c3b8ac30640d522841f9cd1d8962cdc935a7cbe17ac9dd14404255f131"
+    six:
+      path: "Frozen_models/assessor_six_clip_v3_bundle.pt"
+      sha256: "e54bec2b500cf409e1feb8024c8105e5245f172f0c7a59920f88f8614d5e0cc0"
+

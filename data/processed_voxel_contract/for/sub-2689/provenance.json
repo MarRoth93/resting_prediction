@@ -1,0 +1,27 @@
+{
+  "agreement_parcel_ids": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "atlas_sha256": "050b0723c5b596284a2bc39280db3352ecd15fb4c8499a1a6ccb4046740d1e37",
+  "contract_version": 1,
+  "min_parcel_agreement_r": 0.9999999981256592,
+  "n_target_voxels": 2764,
+  "n_vox_wholebrain": 55652,
+  "n_zero_variance_seed_columns": 0,
+  "n_zero_variance_target_voxels": 0,
+  "parcels_available": 400,
+  "preprocessing": {
+    "detrend": false,
+    "discard_initial_trs": 2,
+    "highpass": false,
+    "motion": "unavailable_by_design",
+    "source": "ica_fix_cleaned_effectively_detrended_and_highpass_filtered",
+    "tr_seconds": 2.0,
+    "zscore": true
+  },
+  "source_mat_sha256": "4c801cd65972183fd0f9a93f076f5834121bf680d52515695f6d5d5ef27dd544"
+}

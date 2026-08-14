@@ -42,7 +42,19 @@ slurm_logs/
 *.ckpt
 *.th
 
+# Local clinical labels for the FOR assessor study
+for_groups.csv
+
 # Build output
 build/
 dist/
 *.egg-info/
+.codex-discuss/
+.codex-manager/
+
+# Temporary per-session agent notes (never commit)
+.agent-session-notes/
+
+# Gate-3a regenerable minimal-cleanup REST views
+data/processed_gate3a/
+data/processed_gate3a_schaefer400/

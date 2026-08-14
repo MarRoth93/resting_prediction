@@ -19,15 +19,18 @@ import csv
 import json
 import logging
 import os
+import shlex
 import sys
 from contextlib import contextmanager
 from pathlib import Path
 
+import h5py
 import numpy as np
 from PIL import Image
 from sklearn.linear_model import Ridge
 
 from src.config import load_config
+from src.data.shared_paths import default_stimuli_hdf5
 
 from src.pipelines.reconstruction_utils import (
     _collect_fewshot_runs,
@@ -38,6 +41,15 @@ from src.pipelines.reconstruction_utils import (
     _rowwise_corr,
     _save_panel,
     _select_fewshot_run,
+)
+from src.pipelines.multiexpert_artifacts import file_sha256
+from src.pipelines.predict_train_responses import _train_stim_idx_sha256
+from src.pipelines.vdvae_calibration import (
+    apply_calibration,
+    learn_calibration,
+    load_calibration,
+    make_folds,
+    save_calibration,
 )
 
 logger = logging.getLogger(__name__)
@@ -265,7 +277,7 @@ def _standardize_fmri(
     train_fmri: np.ndarray,
     cond_fmri: dict[str, np.ndarray],
     fmri_scale: float,
-) -> tuple[np.ndarray, dict[str, np.ndarray]]:
+) -> tuple[np.ndarray, dict[str, np.ndarray], np.ndarray, np.ndarray]:
     x_train = train_fmri.astype(np.float32) / float(fmri_scale)
     x_mean = x_train.mean(axis=0, keepdims=True)
     x_std = _safe_std(x_train, axis=0, ddof=1)
@@ -275,7 +287,118 @@ def _standardize_fmri(
     for name, arr in cond_fmri.items():
         x = arr.astype(np.float32) / float(fmri_scale)
         x_cond[name] = (x - x_mean) / x_std
-    return x_train, x_cond
+    return x_train, x_cond, x_mean, x_std
+
+
+def _predict_train_responses_command(
+    condition: str,
+    test_sub: int,
+    data_root: Path,
+    predictions_dir: Path,
+    n_shots: int,
+    seed: int,
+) -> str:
+    args = [
+        "PYTHONPATH=.",
+        shlex.quote(sys.executable),
+        "-m",
+        "src.pipelines.predict_train_responses",
+        "--mode",
+        condition,
+        "--test-sub",
+        str(test_sub),
+        "--data-root",
+        shlex.quote(str(data_root)),
+        "--predictions-dir",
+        shlex.quote(str(predictions_dir)),
+    ]
+    if condition == "few_shot":
+        args.extend(
+            ["--n-shots", str(n_shots), "--seed", str(seed)]
+        )
+    return " ".join(args)
+
+
+def _load_condition_train_source(
+    condition: str,
+    test_sub: int,
+    train_stim_idx: np.ndarray,
+    train_fmri: np.ndarray,
+    data_root: Path,
+    predictions_dir: Path,
+    n_shots: int,
+    seed: int,
+    fmri_scale: float,
+    x_mean: np.ndarray,
+    x_std: np.ndarray,
+) -> tuple[np.ndarray, str, str]:
+    prediction_path = predictions_dir / f"{condition}_sub{test_sub}_train_pred.npy"
+    sidecar_path = predictions_dir / f"{condition}_sub{test_sub}_train_pred.json"
+    command = _predict_train_responses_command(
+        condition=condition,
+        test_sub=test_sub,
+        data_root=data_root,
+        predictions_dir=predictions_dir,
+        n_shots=n_shots,
+        seed=seed,
+    )
+    if not prediction_path.exists() or not sidecar_path.exists():
+        missing = prediction_path if not prediction_path.exists() else sidecar_path
+        raise RuntimeError(
+            f"Missing condition-matched training prediction: {missing}. "
+            f"Run this command first: {command}"
+        )
+
+    predictions = np.load(prediction_path).astype(np.float32)
+    expected_rows = int(len(train_stim_idx))
+    expected_voxels = int(train_fmri.shape[1])
+    if predictions.ndim != 2 or int(predictions.shape[0]) != expected_rows:
+        raise RuntimeError(
+            f"Training prediction row mismatch for {prediction_path}: got "
+            f"{predictions.shape}, expected ({expected_rows}, {expected_voxels}). "
+            f"Run this command first: {command}"
+        )
+    if int(predictions.shape[1]) != expected_voxels:
+        raise RuntimeError(
+            f"Training prediction voxel mismatch for {prediction_path}: got "
+            f"{predictions.shape[1]}, expected {expected_voxels}. "
+            f"Run this command first: {command}"
+        )
+
+    with open(sidecar_path) as sidecar_file:
+        metadata = json.load(sidecar_file)
+    expected_stim_sha256 = _train_stim_idx_sha256(train_stim_idx)
+    if metadata.get("train_stim_idx_sha256") != expected_stim_sha256:
+        raise RuntimeError(
+            f"Training stimulus hash mismatch for {sidecar_path}. "
+            f"Run this command first: {command}"
+        )
+    if int(metadata.get("n_rows", -1)) != expected_rows:
+        raise RuntimeError(
+            f"Training prediction sidecar row mismatch for {sidecar_path}: got "
+            f"{metadata.get('n_rows')}, expected {expected_rows}. "
+            f"Run this command first: {command}"
+        )
+    if metadata.get("mode") != condition:
+        raise RuntimeError(
+            f"Training prediction mode mismatch for {sidecar_path}: got "
+            f"{metadata.get('mode')!r}, expected {condition!r}. "
+            f"Run this command first: {command}"
+        )
+    if condition == "few_shot" and (
+        int(metadata.get("n_shots", -1)) != int(n_shots)
+        or int(metadata.get("seed", -1)) != int(seed)
+    ):
+        raise RuntimeError(
+            f"Few-shot training prediction selection mismatch for {sidecar_path}: "
+            f"got n_shots={metadata.get('n_shots')}, seed={metadata.get('seed')}; "
+            f"expected n_shots={n_shots}, seed={seed}. "
+            f"Run this command first: {command}"
+        )
+
+    source = predictions / float(fmri_scale)
+    source = (source - x_mean) / x_std
+    return source, str(prediction_path), file_sha256(prediction_path)
 
 
 def _columnwise_corr_chunks(
@@ -303,6 +426,20 @@ def _columnwise_corr_chunks(
             )
         )
     return np.concatenate(correlations).astype(np.float32)
+
+
+def _column_moments_chunks(
+    values: np.ndarray,
+    chunk_size: int = 4096,
+) -> tuple[np.ndarray, np.ndarray]:
+    mean = np.empty(values.shape[1], dtype=np.float32)
+    std = np.empty(values.shape[1], dtype=np.float32)
+    for start in range(0, values.shape[1], chunk_size):
+        end = min(start + chunk_size, values.shape[1])
+        chunk = np.asarray(values[:, start:end], dtype=np.float64)
+        mean[start:end] = chunk.mean(axis=0).astype(np.float32)
+        std[start:end] = chunk.std(axis=0).astype(np.float32)
+    return mean, std
 
 
 def _reconstruction_feature_metrics(
@@ -476,7 +613,11 @@ def _load_vdvae_model(recon_model_root: Path):
     return load_vaes(hparams)
 
 
-def _latent_transformation(latents: np.ndarray, ref_latent) -> list[np.ndarray]:
+def _latent_transformation(
+    latents: np.ndarray,
+    ref_latent,
+    n_prefix_layers: int | None = None,
+) -> list[np.ndarray]:
     if latents.ndim != 2:
         raise ValueError(f"Expected flattened VDVAE latents [N, D], got {latents.shape}")
 
@@ -485,10 +626,21 @@ def _latent_transformation(latents: np.ndarray, ref_latent) -> list[np.ndarray]:
         raise ValueError(
             f"VDVAE latent width mismatch: got {latents.shape[1]}, expected {expected_dim}."
         )
+    if (
+        n_prefix_layers is not None
+        and not 1 <= n_prefix_layers <= len(_VDVAE_LAYER_DIMS)
+    ):
+        raise ValueError(
+            f"n_prefix_layers must be in [1, {len(_VDVAE_LAYER_DIMS)}], "
+            f"got {n_prefix_layers}."
+        )
 
     transformed: list[np.ndarray] = []
     start = 0
-    for layer_idx, width in enumerate(_VDVAE_LAYER_DIMS.tolist()):
+    layer_dims = _VDVAE_LAYER_DIMS
+    if n_prefix_layers is not None:
+        layer_dims = layer_dims[:n_prefix_layers]
+    for layer_idx, width in enumerate(layer_dims.tolist()):
         end = start + int(width)
         t_lat = latents[:, start:end]
         c, h, w = ref_latent[layer_idx]["z"].shape[1:]
@@ -506,10 +658,15 @@ def _decode_vdvae_latents(
     save_stim: np.ndarray,
     batch_size: int,
     device: str,
+    n_prefix_layers: int | None = None,
 ):
     import torch
 
-    latents_hier = _latent_transformation(pred_latents, ref_latent)
+    latents_hier = _latent_transformation(
+        pred_latents,
+        ref_latent,
+        n_prefix_layers=n_prefix_layers,
+    )
     out_dir.mkdir(parents=True, exist_ok=True)
 
     for start in range(0, len(pred_latents), batch_size):
@@ -685,7 +842,24 @@ def run_benchmark(
     vd_ddim_eta: float,
     n_panels: int,
     reuse_predicted_features: bool = False,
+    vdvae_calibration: str = "oof",
+    vdvae_calibration_folds: int = 3,
+    vdvae_calibration_seed: int = 42,
+    vdvae_prefix_layers: int = len(_VDVAE_LAYER_DIMS),
+    test_images_hdf5: Path | None = None,
 ):
+    if vdvae_calibration not in {"oof", "none", "per-condition"}:
+        raise ValueError(f"Unknown VDVAE calibration mode: {vdvae_calibration!r}.")
+    if vdvae_calibration in {"oof", "per-condition"} and vdvae_calibration_folds < 2:
+        raise ValueError(
+            f"vdvae_calibration_folds must be at least 2, got {vdvae_calibration_folds}."
+        )
+    if not 1 <= vdvae_prefix_layers <= len(_VDVAE_LAYER_DIMS):
+        raise ValueError(
+            f"vdvae_prefix_layers must be in [1, {len(_VDVAE_LAYER_DIMS)}], "
+            f"got {vdvae_prefix_layers}."
+        )
+
     recon_model_root = _require_model_root(recon_model_root)
     _require_file(vdvae_feature_npz, "VDVAE feature NPZ")
     _require_file(vdvae_ref_npz, "VDVAE reference latent NPZ")
@@ -820,6 +994,20 @@ def run_benchmark(
 
     pred_feature_dir = output_dir / "predicted_features"
 
+    if not reuse_predicted_features or vdvae_calibration in {"oof", "per-condition"}:
+        x_train_all, x_cond, x_mean, x_std = _standardize_fmri(
+            train_fmri,
+            cond_fmri,
+            fmri_scale=fmri_scale,
+        )
+        x_train_vdvae, train_vdvae_aligned, vdvae_train_align = _align_train_rows(
+            train_matrix=x_train_all,
+            train_stim_idx=train_stim_idx,
+            train_targets=train_vdvae,
+            label="VDVAE",
+            target_train_stim_idx=vdvae_train_stim_idx,
+        )
+
     # --reuse-predicted-features: load cached predictions instead of re-running ridge
     if reuse_predicted_features:
         cond_names = list(cond_fmri.keys())
@@ -838,18 +1026,11 @@ def run_benchmark(
         pred_clipvision = {name: np.load(pred_feature_dir / f"{name}_clipvision.npy") for name in cond_names}
         logger.info("Loaded cached predicted features from %s", pred_feature_dir)
         # Populate train-alignment info placeholders for summary
-        vdvae_train_align = {"rows_used": -1, "mode": "reused_cache"}
+        if vdvae_calibration == "none":
+            vdvae_train_align = {"rows_used": -1, "mode": "reused_cache"}
         cliptext_train_align = {"rows_used": -1, "mode": "reused_cache"}
         clipvision_train_align = {"rows_used": -1, "mode": "reused_cache"}
     else:
-        x_train_all, x_cond = _standardize_fmri(train_fmri, cond_fmri, fmri_scale=fmri_scale)
-        x_train_vdvae, train_vdvae_aligned, vdvae_train_align = _align_train_rows(
-            train_matrix=x_train_all,
-            train_stim_idx=train_stim_idx,
-            train_targets=train_vdvae,
-            label="VDVAE",
-            target_train_stim_idx=vdvae_train_stim_idx,
-        )
         x_train_cliptext, train_cliptext_aligned, cliptext_train_align = _align_train_rows(
             train_matrix=x_train_all,
             train_stim_idx=train_stim_idx,
@@ -894,6 +1075,252 @@ def run_benchmark(
             max_iter=ridge_max_iter,
             label="CLIP-vision",
         )
+
+    calibration_summary: dict = {"mode": "none"}
+    pred_vdvae_cal = pred_vdvae
+    if vdvae_calibration == "oof":
+        n_rows = int(train_vdvae_aligned.shape[0])
+        expected_calibration_metadata = {
+            "n_folds": int(vdvae_calibration_folds),
+            "seed": int(vdvae_calibration_seed),
+            "alpha": float(vdvae_alpha),
+            "n_rows": n_rows,
+        }
+        calibration_path = output_dir / "vdvae_calibration.npz"
+        calibration = None
+        cache_hit = False
+        if calibration_path.exists():
+            loaded_calibration, loaded_metadata = load_calibration(calibration_path)
+            if all(
+                loaded_metadata.get(key) == value
+                for key, value in expected_calibration_metadata.items()
+            ):
+                calibration = loaded_calibration
+                cache_hit = True
+                logger.info("Loaded matching VDVAE calibration from %s", calibration_path)
+            else:
+                logger.info(
+                    "VDVAE calibration cache metadata mismatch; recomputing %s",
+                    calibration_path,
+                )
+
+        if calibration is None:
+            folds = make_folds(
+                n_rows=n_rows,
+                n_folds=vdvae_calibration_folds,
+                seed=vdvae_calibration_seed,
+            )
+            oof_pred = np.empty(train_vdvae_aligned.shape, dtype=np.float32)
+            for fold_idx in range(vdvae_calibration_folds):
+                train_mask = folds != fold_idx
+                held_out_mask = folds == fold_idx
+                logger.info(
+                    "Regressing VDVAE OOF fold %d/%d (%d train, %d held out)",
+                    fold_idx + 1,
+                    vdvae_calibration_folds,
+                    int(train_mask.sum()),
+                    int(held_out_mask.sum()),
+                )
+                fold_pred = _predict_vdvae_latents(
+                    x_train=x_train_vdvae[train_mask],
+                    x_cond={"oof": x_train_vdvae[held_out_mask]},
+                    train_latents=train_vdvae_aligned[train_mask],
+                    alpha=vdvae_alpha,
+                    max_iter=ridge_max_iter,
+                    chunk_size=vdvae_chunk_size,
+                )
+                oof_pred[held_out_mask] = fold_pred["oof"]
+
+            oof_mean, oof_std = _column_moments_chunks(oof_pred, chunk_size=4096)
+            target_mean, target_std = _column_moments_chunks(
+                train_vdvae_aligned,
+                chunk_size=4096,
+            )
+            calibration = learn_calibration(
+                oof_pred_mean=oof_mean,
+                oof_pred_std=oof_std,
+                target_mean=target_mean,
+                target_std=target_std,
+                gain_cap_multiple=10.0,
+            )
+            calibration_metadata = {
+                **expected_calibration_metadata,
+                "gain_cap_multiple": 10.0,
+                "n_capped": int(calibration["n_capped"]),
+            }
+            calibration_path.parent.mkdir(parents=True, exist_ok=True)
+            save_calibration(calibration_path, calibration, calibration_metadata)
+            logger.info("Saved VDVAE calibration to %s", calibration_path)
+
+        logger.info(
+            "VDVAE calibration: n_capped=%d median_gain=%.6f",
+            int(calibration["n_capped"]),
+            float(calibration["median_gain"]),
+        )
+        # This measured-fMRI OOF calibration is shared by all conditions, including
+        # zero/few-shot. The residual per-condition scale mismatch (~1.3x) is a known
+        # limitation, second-order relative to the 6.3x raw mismatch.
+        pred_vdvae_cal = {
+            name: apply_calibration(pred, calibration) for name, pred in pred_vdvae.items()
+        }
+        calibration_summary = {
+            "mode": "oof",
+            "folds": int(vdvae_calibration_folds),
+            "seed": int(vdvae_calibration_seed),
+            "n_capped": int(calibration["n_capped"]),
+            "median_gain": float(calibration["median_gain"]),
+            "prefix_layers": int(vdvae_prefix_layers),
+            "cache_hit": cache_hit,
+        }
+    elif vdvae_calibration == "per-condition":
+        n_rows = int(train_vdvae_aligned.shape[0])
+        folds = make_folds(
+            n_rows=n_rows,
+            n_folds=vdvae_calibration_folds,
+            seed=vdvae_calibration_seed,
+        )
+        target_mean, target_std = _column_moments_chunks(
+            train_vdvae_aligned,
+            chunk_size=4096,
+        )
+        pred_vdvae_cal = {}
+        condition_calibration_summary = {}
+
+        for condition in cond_fmri:
+            train_pred_sha256 = None
+            if condition == "gt_fmri":
+                condition_source = x_train_all
+                source_description = "measured_train_fmri"
+            else:
+                condition_source, source_description, train_pred_sha256 = (
+                    _load_condition_train_source(
+                        condition=condition,
+                        test_sub=test_sub,
+                        train_stim_idx=train_stim_idx,
+                        train_fmri=train_fmri,
+                        data_root=data_root,
+                        predictions_dir=predictions_dir,
+                        n_shots=few_run.n_shots,
+                        seed=few_run.seed,
+                        fmri_scale=fmri_scale,
+                        x_mean=x_mean,
+                        x_std=x_std,
+                    )
+                )
+
+            condition_source_aligned, condition_targets, _ = _align_train_rows(
+                train_matrix=condition_source,
+                train_stim_idx=train_stim_idx,
+                train_targets=train_vdvae,
+                label=f"VDVAE {condition} calibration",
+                target_train_stim_idx=vdvae_train_stim_idx,
+            )
+            expected_calibration_metadata = {
+                "n_folds": int(vdvae_calibration_folds),
+                "seed": int(vdvae_calibration_seed),
+                "alpha": float(vdvae_alpha),
+                "n_rows": n_rows,
+                "condition": condition,
+                "fit_inputs": "measured",
+            }
+            if train_pred_sha256 is not None:
+                expected_calibration_metadata["train_pred_sha256"] = train_pred_sha256
+
+            calibration_path = output_dir / f"vdvae_calibration_{condition}.npz"
+            calibration = None
+            cache_hit = False
+            if calibration_path.exists():
+                loaded_calibration, loaded_metadata = load_calibration(calibration_path)
+                if all(
+                    loaded_metadata.get(key) == value
+                    for key, value in expected_calibration_metadata.items()
+                ):
+                    calibration = loaded_calibration
+                    cache_hit = True
+                    logger.info(
+                        "Loaded matching %s VDVAE calibration from %s",
+                        condition,
+                        calibration_path,
+                    )
+                else:
+                    logger.info(
+                        "%s VDVAE calibration cache metadata mismatch; recomputing %s",
+                        condition,
+                        calibration_path,
+                    )
+
+            if calibration is None:
+                oof_pred = np.empty(condition_targets.shape, dtype=np.float32)
+                for fold_idx in range(vdvae_calibration_folds):
+                    train_mask = folds != fold_idx
+                    held_out_mask = folds == fold_idx
+                    logger.info(
+                        "Regressing %s VDVAE OOF fold %d/%d (%d train, %d held out)",
+                        condition,
+                        fold_idx + 1,
+                        vdvae_calibration_folds,
+                        int(train_mask.sum()),
+                        int(held_out_mask.sum()),
+                    )
+                    # Fit on MEASURED train fMRI (matching the deployed full-data
+                    # ridge) and apply to the condition's held-out source rows.
+                    # Fitting on condition inputs would learn a much more shrunk
+                    # ridge and blow up the calibration gains.
+                    fold_pred = _predict_vdvae_latents(
+                        x_train=x_train_vdvae[train_mask],
+                        x_cond={"oof": condition_source_aligned[held_out_mask]},
+                        train_latents=train_vdvae_aligned[train_mask],
+                        alpha=vdvae_alpha,
+                        max_iter=ridge_max_iter,
+                        chunk_size=vdvae_chunk_size,
+                    )
+                    oof_pred[held_out_mask] = fold_pred["oof"]
+
+                oof_mean, oof_std = _column_moments_chunks(
+                    oof_pred,
+                    chunk_size=4096,
+                )
+                calibration = learn_calibration(
+                    oof_pred_mean=oof_mean,
+                    oof_pred_std=oof_std,
+                    target_mean=target_mean,
+                    target_std=target_std,
+                    gain_cap_multiple=10.0,
+                )
+                calibration_metadata = {
+                    **expected_calibration_metadata,
+                    "gain_cap_multiple": 10.0,
+                    "n_capped": int(calibration["n_capped"]),
+                }
+                calibration_path.parent.mkdir(parents=True, exist_ok=True)
+                save_calibration(calibration_path, calibration, calibration_metadata)
+                logger.info(
+                    "Saved %s VDVAE calibration to %s",
+                    condition,
+                    calibration_path,
+                )
+
+            logger.info(
+                "%s VDVAE calibration: n_capped=%d median_gain=%.6f",
+                condition,
+                int(calibration["n_capped"]),
+                float(calibration["median_gain"]),
+            )
+            pred_vdvae_cal[condition] = apply_calibration(
+                pred_vdvae[condition],
+                calibration,
+            )
+            condition_calibration_summary[condition] = {
+                "n_capped": int(calibration["n_capped"]),
+                "median_gain": float(calibration["median_gain"]),
+                "cache_hit": cache_hit,
+                "source": source_description,
+            }
+
+        calibration_summary = {
+            "mode": "per-condition",
+            "conditions": condition_calibration_summary,
+        }
 
     pred_feature_dir.mkdir(parents=True, exist_ok=True)
     recon_vdvae_dir = output_dir / "reconstructions_vdvae"
@@ -940,11 +1367,17 @@ def run_benchmark(
             "ddim_steps": vd_ddim_steps,
             "ddim_eta": vd_ddim_eta,
         },
+        "vdvae_calibration": calibration_summary,
         "conditions": {},
     }
 
     for name in cond_fmri:
         np.save(pred_feature_dir / f"{name}_vdvae.npy", pred_vdvae[name])
+        if vdvae_calibration in {"oof", "per-condition"}:
+            np.save(
+                pred_feature_dir / f"{name}_vdvae_calibrated.npy",
+                pred_vdvae_cal[name],
+            )
         np.save(pred_feature_dir / f"{name}_cliptext.npy", pred_cliptext[name])
         np.save(pred_feature_dir / f"{name}_clipvision.npy", pred_clipvision[name])
         pred_vdvae_eval = pred_vdvae[name][vdvae_eval_mask]
@@ -956,7 +1389,7 @@ def run_benchmark(
         clipvision_metrics = _reconstruction_feature_metrics(
             test_clipvision_eval, pred_clipvision_eval
         )
-        summary["conditions"][name] = {
+        condition_summary = {
             "vdvae_latent_r2_vs_true_eval": vdvae_metrics["r2_vs_true_eval"],
             "cliptext_r2_vs_true_eval": cliptext_metrics["r2_vs_true_eval"],
             "clipvision_r2_vs_true_eval": clipvision_metrics["r2_vs_true_eval"],
@@ -964,6 +1397,13 @@ def run_benchmark(
             "cliptext": cliptext_metrics,
             "clipvision": clipvision_metrics,
         }
+        if vdvae_calibration in {"oof", "per-condition"}:
+            pred_vdvae_cal_eval = pred_vdvae_cal[name][vdvae_eval_mask]
+            condition_summary["vdvae_calibrated"] = _reconstruction_feature_metrics(
+                test_vdvae_eval,
+                pred_vdvae_cal_eval,
+            )
+        summary["conditions"][name] = condition_summary
 
     ref_latent = np.load(vdvae_ref_npz, allow_pickle=True)["ref_latent"]
     ema_vae = _load_vdvae_model(recon_model_root=recon_model_root)
@@ -972,13 +1412,14 @@ def run_benchmark(
         logger.info("Decoding VDVAE condition: %s", name)
         _decode_vdvae_latents(
             ema_vae=ema_vae,
-            pred_latents=pred_vdvae[name],
+            pred_latents=pred_vdvae_cal[name],
             ref_latent=ref_latent,
             out_dir=recon_vdvae_dir / name,
             save_rows=eval_indices,
             save_stim=stim_eval,
             batch_size=vdvae_batch_size,
             device=device,
+            n_prefix_layers=vdvae_prefix_layers,
         )
 
     net, sampler, utx, uim = _load_versatile_components(
@@ -1017,45 +1458,59 @@ def run_benchmark(
     panel_rows = order[: min(n_panels, len(order))]
 
     manifest_rows: list[dict[str, str | int | float]] = []
-    for rank, local_idx in enumerate(panel_rows, start=1):
-        row = int(eval_indices[local_idx])
-        stim = int(stim_eval[local_idx])
-        fname = f"row{row:05d}_stim{stim}.png"
+    stimuli_h5 = None
+    if (
+        not (test_images_npy is not None and test_images_npy.exists())
+        and not (test_images_dir is not None and test_images_dir.exists())
+        and test_images_hdf5 is not None
+        and test_images_hdf5.exists()
+    ):
+        stimuli_h5 = h5py.File(test_images_hdf5, "r")
+    try:
+        for rank, local_idx in enumerate(panel_rows, start=1):
+            row = int(eval_indices[local_idx])
+            stim = int(stim_eval[local_idx])
+            fname = f"row{row:05d}_stim{stim}.png"
 
-        gt_img_path = recon_final_dir / "gt_fmri" / fname
-        zero_img_path = recon_final_dir / "zero_shot" / fname
-        few_img_path = recon_final_dir / "few_shot" / fname
+            gt_img_path = recon_final_dir / "gt_fmri" / fname
+            zero_img_path = recon_final_dir / "zero_shot" / fname
+            few_img_path = recon_final_dir / "few_shot" / fname
 
-        original_img = None
-        if test_images_npy is not None and test_images_npy.exists():
-            try:
-                original_img = _load_image_from_npy(test_images_npy, row)
-            except Exception:
-                original_img = None
-        elif test_images_dir is not None and test_images_dir.exists():
-            original_img = _load_image_from_dir(test_images_dir, row, stim)
+            original_img = None
+            if test_images_npy is not None and test_images_npy.exists():
+                try:
+                    original_img = _load_image_from_npy(test_images_npy, row)
+                except Exception:
+                    original_img = None
+            elif test_images_dir is not None and test_images_dir.exists():
+                original_img = _load_image_from_dir(test_images_dir, row, stim)
+            elif stimuli_h5 is not None:
+                original_img = Image.fromarray(stimuli_h5["imgBrick"][stim]).convert("RGB")
 
-        panel_name = f"rank{rank:02d}_row{row:05d}_stim{stim}.png"
-        _save_panel(
-            out_path=panels_dir / panel_name,
-            original=original_img,
-            gt_path=gt_img_path,
-            zero_path=zero_img_path,
-            few_path=few_img_path,
-            title=f"row {row} | stim {stim} | act corr zero={zero_r[local_idx]:.3f}, few={few_r[local_idx]:.3f}",
-        )
+            panel_name = f"rank{rank:02d}_row{row:05d}_stim{stim}.png"
+            _save_panel(
+                out_path=panels_dir / panel_name,
+                original=original_img,
+                gt_path=gt_img_path,
+                zero_path=zero_img_path,
+                few_path=few_img_path,
+                title=f"row {row} | stim {stim} | act corr zero={zero_r[local_idx]:.3f}, few={few_r[local_idx]:.3f}",
+            )
 
-        manifest_rows.append(
-            {
-                "rank": rank,
-                "test_row": row,
-                "stim_id": stim,
-                "zero_activation_pattern_r": float(zero_r[local_idx]),
-                "few_activation_pattern_r": float(few_r[local_idx]),
-                "delta_few_minus_zero": float(delta[local_idx]),
-                "panel_file": panel_name,
-            }
-        )
+            manifest_rows.append(
+                {
+                    "rank": rank,
+                    "test_row": row,
+                    "stim_id": stim,
+                    "zero_activation_pattern_r": float(zero_r[local_idx]),
+                    "few_activation_pattern_r": float(few_r[local_idx]),
+                    "delta_few_minus_zero": float(delta[local_idx]),
+                    "panel_file": panel_name,
+                }
+            )
+    finally:
+        if stimuli_h5 is not None:
+            stimuli_h5.close()
 
     with open(output_dir / "manifest.csv", "w", newline="") as f:
         writer = csv.DictWriter(
@@ -1114,12 +1569,29 @@ if __name__ == "__main__":
         default="",
         help="Optional directory of test images named by row index or stim id.",
     )
+    parser.add_argument(
+        "--test-images-hdf5",
+        default=default_stimuli_hdf5(),
+        help="NSD stimulus HDF5 used for original images when npy/dir sources are unavailable.",
+    )
 
     parser.add_argument("--fewshot-n-shots", type=int, default=None)
     parser.add_argument("--fewshot-seed", type=int, default=None)
 
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--n-panels", type=int, default=20)
+    parser.add_argument(
+        "--vdvae-calibration",
+        choices=("oof", "none", "per-condition"),
+        default="oof",
+    )
+    parser.add_argument("--vdvae-calibration-folds", type=int, default=3)
+    parser.add_argument("--vdvae-calibration-seed", type=int, default=42)
+    parser.add_argument(
+        "--vdvae-prefix-layers",
+        type=int,
+        default=len(_VDVAE_LAYER_DIMS),
+    )
     parser.add_argument(
         "--reuse-predicted-features",
         action="store_true",
@@ -1161,6 +1633,7 @@ if __name__ == "__main__":
 
     test_images_npy = Path(args.test_images_npy) if args.test_images_npy else None
     test_images_dir = Path(args.test_images_dir) if args.test_images_dir else None
+    test_images_hdf5 = Path(args.test_images_hdf5) if args.test_images_hdf5 else None
 
     run_benchmark(
         test_sub=args.test_sub,
@@ -1200,4 +1673,9 @@ if __name__ == "__main__":
         vd_ddim_eta=float(recon_cfg["vd_ddim_eta"]),
         n_panels=args.n_panels,
         reuse_predicted_features=args.reuse_predicted_features,
+        vdvae_calibration=args.vdvae_calibration,
+        vdvae_calibration_folds=args.vdvae_calibration_folds,
+        vdvae_calibration_seed=args.vdvae_calibration_seed,
+        vdvae_prefix_layers=args.vdvae_prefix_layers,
+        test_images_hdf5=test_images_hdf5,
     )

@@ -1,0 +1,100 @@
+# Frozen production configuration for Gate-2 voxel-contract LOSO.
+release:
+  name: "voxel_contract_v1"
+  status: "frozen"
+  selected_trial: 13
+  selection_subjects: [1, 2, 3, 4, 5, 6]
+  robustness_seeds: [42, 43, 44, 45, 46]
+
+subjects:
+  train: [1, 2, 3, 4, 5, 6]
+  test: [7]
+
+data_root: "data/processed"
+raw_data_root: "/media/psycontrol/HDD/Datasets/brain-diffuser/data"
+output_root: "artifacts"
+
+voxel_contract:
+  root: "data/processed_voxel_contract"
+  parcel_rest_root: "data/processed_schaefer400"
+
+analysis_mask:
+  mode: "nsdgeneral"
+
+features:
+  type: "clip"
+  streams: ["clip"]
+  clip_model: "ViT-L/14"
+  batch_size: 64
+  device: "cuda"
+
+random_seed: 42
+
+rest_preprocessing:
+  discard_initial_trs: 5
+  detrend: true
+  highpass_cutoff_hz: 0.01
+  motion_censoring:
+    enabled: true
+    fd_threshold_mm: 0.5
+    max_censored_fraction: 0.3
+    strategy: "spike_regress_then_drop"
+  nuisance_regression:
+    enabled: true
+    motion_model: "friston24"
+    standardize: true
+    require_motion: true
+  zscore: true
+  min_usable_trs: 100
+
+alignment:
+  n_components: 100
+  min_k: 10
+  connectivity_mode: "external_seed_bank"
+  experiment_mode: "hybrid_cha"
+  ensemble_method: "concat"
+  max_iters: 10
+  tol: 1.0e-5
+  external_seed_bank:
+    seed_set: "nsd_roi_seed_bank"
+    min_voxels_per_seed: 10
+    force_recompute: false
+
+encoding:
+  architecture: "tribe_static_transformer"
+  transformer:
+    d_model: 384
+    n_layers: 8
+    n_heads: 8
+    ff_multiplier: 4.0
+  dropout: 0.20
+  learning_rate: 2.084109344364613e-4
+  weight_decay: 3.0201957739732042e-5
+  batch_size: 512
+  max_epochs: 200
+  patience: 20
+  val_fraction: 0.10
+  val_metric: "pearson"
+  validation_mode: "stimulus_grouped"
+  standardize_targets: true
+  device: "cuda"
+
+evaluation:
+  fixed_eval_size: 200
+  eval_split_seed: 42
+  reliability_thresholds: [0.0, 0.1, 0.3]
+
+reconstruction:
+  fmri_scale: 300.0
+  ridge_max_iter: 50000
+  vdvae_alpha: 50000.0
+  cliptext_alpha: 100000.0
+  clipvision_alpha: 60000.0
+  vdvae_chunk_size: 2048
+  vdvae_batch_size: 8
+  precision: "fp16"
+  vd_strength: 0.5
+  vd_mixing: 0.2
+  vd_guidance_scale: 20.0
+  vd_ddim_steps: 50
+  vd_ddim_eta: 0.0

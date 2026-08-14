@@ -119,6 +119,33 @@ flowchart LR
    training. FOR REST determines the subject alignment. The feature rows
    determine which new image responses are predicted.
 
+8. Reconstruct the prepared 500-image FOR batch with VDVAE.
+
+   First run the read-only preflight:
+
+   ```bash
+   ./run_schaefer400_vdvae.sh check
+   ```
+
+   Then manually start the full resumable run:
+
+   ```bash
+   ./run_schaefer400_vdvae.sh all
+   ```
+
+   This fits one shared Schaefer-400-to-VDVAE latent decoder from the six NSD
+   subjects' shared task images, predicts VDVAE latents from each FOR subject's
+   `learned_fusion.npy`, and decodes 500 images per subject. It does not use the
+   selected images' true VDVAE latents. Outputs default to
+   `artifacts/schaefer400_multiexpert/reconstructions_vdvae/random_unseen_500_seed42/`.
+   The run resumes missing images rather than overwriting completed subjects.
+   Use `SUBJECTS="sub-0258" ./run_schaefer400_vdvae.sh all` for a one-subject
+   smoke run before launching all 50.
+
+   For the leakage-controlled NSD validation, frozen assessor scoring, and
+   healthy/depressed subject-level comparison, follow
+   [`FOR_ASSESSOR_STUDY.md`](FOR_ASSESSOR_STUDY.md).
+
 ## Missing FOR parcels
 
 The current FOR export has 50 subjects. All have 237 time points at TR 2.0

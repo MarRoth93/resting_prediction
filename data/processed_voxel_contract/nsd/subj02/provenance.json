@@ -1,0 +1,130 @@
+{
+  "atlas_sha256": "c5a07684d0ed2a2f0a0a759bd30b3a1117d733553dfcfd97795611dadf8e87f4",
+  "contract_version": 1,
+  "n_dropped_label0": 0,
+  "n_mask_voxels": 14278,
+  "n_parcels_present": 73,
+  "n_target_voxels": 14276,
+  "rest_runs": [
+    {
+      "filename": "rest_run1.npy",
+      "n_trs": 221,
+      "parcel_path": "/home/psycontrol/Marco/resting_prediction/data/processed_schaefer400/subj02/rest_run1.npy",
+      "voxel_path": "/home/psycontrol/Marco/resting_prediction/data/processed/subj02/rest_run1.npy"
+    },
+    {
+      "filename": "rest_run10.npy",
+      "n_trs": 220,
+      "parcel_path": "/home/psycontrol/Marco/resting_prediction/data/processed_schaefer400/subj02/rest_run10.npy",
+      "voxel_path": "/home/psycontrol/Marco/resting_prediction/data/processed/subj02/rest_run10.npy"
+    },
+    {
+      "filename": "rest_run11.npy",
+      "n_trs": 220,
+      "parcel_path": "/home/psycontrol/Marco/resting_prediction/data/processed_schaefer400/subj02/rest_run11.npy",
+      "voxel_path": "/home/psycontrol/Marco/resting_prediction/data/processed/subj02/rest_run11.npy"
+    },
+    {
+      "filename": "rest_run12.npy",
+      "n_trs": 219,
+      "parcel_path": "/home/psycontrol/Marco/resting_prediction/data/processed_schaefer400/subj02/rest_run12.npy",
+      "voxel_path": "/home/psycontrol/Marco/resting_prediction/data/processed/subj02/rest_run12.npy"
+    },
+    {
+      "filename": "rest_run13.npy",
+      "n_trs": 221,
+      "parcel_path": "/home/psycontrol/Marco/resting_prediction/data/processed_schaefer400/subj02/rest_run13.npy",
+      "voxel_path": "/home/psycontrol/Marco/resting_prediction/data/processed/subj02/rest_run13.npy"
+    },
+    {
+      "filename": "rest_run14.npy",
+      "n_trs": 220,
+      "parcel_path": "/home/psycontrol/Marco/resting_prediction/data/processed_schaefer400/subj02/rest_run14.npy",
+      "voxel_path": "/home/psycontrol/Marco/resting_prediction/data/processed/subj02/rest_run14.npy"
+    },
+    {
+      "filename": "rest_run15.npy",
+      "n_trs": 220,
+      "parcel_path": "/home/psycontrol/Marco/resting_prediction/data/processed_schaefer400/subj02/rest_run15.npy",
+      "voxel_path": "/home/psycontrol/Marco/resting_prediction/data/processed/subj02/rest_run15.npy"
+    },
+    {
+      "filename": "rest_run16.npy",
+      "n_trs": 221,
+      "parcel_path": "/home/psycontrol/Marco/resting_prediction/data/processed_schaefer400/subj02/rest_run16.npy",
+      "voxel_path": "/home/psycontrol/Marco/resting_prediction/data/processed/subj02/rest_run16.npy"
+    },
+    {
+      "filename": "rest_run17.npy",
+      "n_trs": 221,
+      "parcel_path": "/home/psycontrol/Marco/resting_prediction/data/processed_schaefer400/subj02/rest_run17.npy",
+      "voxel_path": "/home/psycontrol/Marco/resting_prediction/data/processed/subj02/rest_run17.npy"
+    },
+    {
+      "filename": "rest_run18.npy",
+      "n_trs": 219,
+      "parcel_path": "/home/psycontrol/Marco/resting_prediction/data/processed_schaefer400/subj02/rest_run18.npy",
+      "voxel_path": "/home/psycontrol/Marco/resting_prediction/data/processed/subj02/rest_run18.npy"
+    },
+    {
+      "filename": "rest_run19.npy",
+      "n_trs": 221,
+      "parcel_path": "/home/psycontrol/Marco/resting_prediction/data/processed_schaefer400/subj02/rest_run19.npy",
+      "voxel_path": "/home/psycontrol/Marco/resting_prediction/data/processed/subj02/rest_run19.npy"
+    },
+    {
+      "filename": "rest_run2.npy",
+      "n_trs": 221,
+      "parcel_path": "/home/psycontrol/Marco/resting_prediction/data/processed_schaefer400/subj02/rest_run2.npy",
+      "voxel_path": "/home/psycontrol/Marco/resting_prediction/data/processed/subj02/rest_run2.npy"
+    },
+    {
+      "filename": "rest_run20.npy",
+      "n_trs": 221,
+      "parcel_path": "/home/psycontrol/Marco/resting_prediction/data/processed_schaefer400/subj02/rest_run20.npy",
+      "voxel_path": "/home/psycontrol/Marco/resting_prediction/data/processed/subj02/rest_run20.npy"
+    },
+    {
+      "filename": "rest_run3.npy",
+      "n_trs": 221,
+      "parcel_path": "/home/psycontrol/Marco/resting_prediction/data/processed_schaefer400/subj02/rest_run3.npy",
+      "voxel_path": "/home/psycontrol/Marco/resting_prediction/data/processed/subj02/rest_run3.npy"
+    },
+    {
+      "filename": "rest_run4.npy",
+      "n_trs": 219,
+      "parcel_path": "/home/psycontrol/Marco/resting_prediction/data/processed_schaefer400/subj02/rest_run4.npy",
+      "voxel_path": "/home/psycontrol/Marco/resting_prediction/data/processed/subj02/rest_run4.npy"
+    },
+    {
+      "filename": "rest_run5.npy",
+      "n_trs": 221,
+      "parcel_path": "/home/psycontrol/Marco/resting_prediction/data/processed_schaefer400/subj02/rest_run5.npy",
+      "voxel_path": "/home/psycontrol/Marco/resting_prediction/data/processed/subj02/rest_run5.npy"
+    },
+    {
+      "filename": "rest_run6.npy",
+      "n_trs": 220,
+      "parcel_path": "/home/psycontrol/Marco/resting_prediction/data/processed_schaefer400/subj02/rest_run6.npy",
+      "voxel_path": "/home/psycontrol/Marco/resting_prediction/data/processed/subj02/rest_run6.npy"
+    },
+    {
+      "filename": "rest_run7.npy",
+      "n_trs": 221,
+      "parcel_path": "/home/psycontrol/Marco/resting_prediction/data/processed_schaefer400/subj02/rest_run7.npy",
+      "voxel_path": "/home/psycontrol/Marco/resting_prediction/data/processed/subj02/rest_run7.npy"
+    },
+    {
+      "filename": "rest_run8.npy",
+      "n_trs": 220,
+      "parcel_path": "/home/psycontrol/Marco/resting_prediction/data/processed_schaefer400/subj02/rest_run8.npy",
+      "voxel_path": "/home/psycontrol/Marco/resting_prediction/data/processed/subj02/rest_run8.npy"
+    },
+    {
+      "filename": "rest_run9.npy",
+      "n_trs": 221,
+      "parcel_path": "/home/psycontrol/Marco/resting_prediction/data/processed_schaefer400/subj02/rest_run9.npy",
+      "voxel_path": "/home/psycontrol/Marco/resting_prediction/data/processed/subj02/rest_run9.npy"
+    }
+  ]
+}
