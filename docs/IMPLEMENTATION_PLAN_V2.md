@@ -665,6 +665,109 @@ FOR prediction accuracy is **permanently unmeasurable** — no FOR task fMRI exi
 
 ## 7. Phase 5 — FOR analysis
 
+### 7.0 FROZEN ANALYSIS DESIGN (2026-08-14, Claude↔Codex review, AGREE_WITH_CHANGES)
+
+Note: this review round ran as a single-critic (Codex-only) assessment. The
+critic performed label-blind audits of the real bundles; findings below marked
+[audited] carry measured numbers.
+
+**Endpoint structure (frozen before any label access):**
+1. **Model-derived primary (1 test):** global raw **NSD-template fingerprint
+   alignment error** ||F_s − T||_F/||T||_F, exactly the Gate-3 definition
+   (`gate3_resolution_shift.py:260`). Precise naming is mandatory: this is a
+   fingerprint alignment error against a 6-subject NSD reference scanned on a
+   different protocol — NOT a normative-deviation biomarker, and NOT "the
+   quantity the model sees" (the encoder consumes P,R; the residual is
+   diagnostic). The estimand is stated literally: which FOR group lies closer
+   to the NSD reference. [audited: 74% of residual squared error is the
+   fingerprint column-mean offset (r=.97 with it) — the offset/centered-shape
+   decomposition is preregistered as non-inferential QC.]
+2. **Conventional family primary (1 test):** one permutation **omnibus** over
+   the 28 Yeo-7 block values of the 400×400 parcel connectivity (sum of squared
+   studentized group effects). Contract: Pearson on the 235×400 contract seeds,
+   clip + Fisher-z, exclude self-edges, unique edges only, checksum-pinned
+   Schaefer/Yeo ordering. Framed as a MODEL-FREE ANALYSIS OF THE SAME SCAN —
+   not independent corroboration (same data, same motion confound).
+   [audited: contiguous-half across-subject reliability of the 28 blocks
+   r=.73–.85, median .79.]
+3. **Exploratory localization (BH within each set):** 7 network fingerprint
+   residuals; 28 individual connectivity blocks.
+4. **QC / sensitivity only (never inferential):** residual mean-offset vs
+   centered-shape decomposition; endpoint split-half reliability (label-blind
+   measurement gate BEFORE labels); V_t, standardized DVARS, coverage
+   correlations [audited: raw residual vs V_t r=.013; centered residual
+   r=.44 — a reason the raw residual is primary]; log(V_t)/DVARS enter only as
+   declared sensitivity analyses. Outcome-adaptive demotion rules are
+   prohibited.
+
+**Statistics:** subject-label permutation (10,000), two-sided; effect sizes
+with bootstrap CIs. When FOR motion data arrives: Freedman–Lane residual
+permutation (fit reduced nuisance model, permute residuals, reconstruct,
+refit; same schedule across endpoints — Winkler et al. 2014), with group-blind
+exclusions, mean FD + censored-fraction covariates, residual motion–endpoint
+checks, stricter-censoring sensitivity analyses. Friston-24 is NOT re-run
+blindly without upstream FIX provenance.
+
+**Claim policy:** before motion data, NO clinical/neural group claim is
+non-exploratory — label permutation protects type-I error of the label
+association but cannot separate diagnosis from group-correlated motion (Power
+2012; Ciric 2017). Permitted pre-motion claims: artifact completeness, endpoint
+reliability, coverage robustness, or "a preregistered pipeline detected an
+association in the delivered dataset, unresolved with respect to motion."
+
+**Enforced blindness (not merely procedural):** the analysis module is
+developed and frozen against synthetic labels; endpoint manifest, code commit,
+QC decisions and output schema are fixed BEFORE label access; the final run is
+executed such that `for_groups.csv` is read exactly once — and the module must
+never import the existing label loader (`for_assessor_study.py:89` reads labels
+even in check mode; that path is off-limits).
+
+**Illustrative reconstructions:** 4 stimulus IDs frozen now; subjects selected
+per group by a deterministic hash rule after unblinding; labeled "random
+examples", never "representative cases". No statistics.
+
+**Rejected as primary:** ML classification on fingerprints (n=50, 40k-d;
+optimism risk); if ever added as clearly-labeled secondary, all preprocessing
+and feature selection must sit inside every outer fold and every permutation.
+
+### 7.0b Illustrative reconstruction, assessor, and swap-control RESULTS (measured 2026-08-14–18)
+
+All exploratory / illustrative under D-02; motion-uncorrected.
+
+**Reconstruction from predicted fMRI (2026-08-14,
+`reconstruct_from_predictions.py`, `artifacts/recon_from_predictions/seed42/`):**
+72-parcel common decoder fitted on measured subj07 responses; go/no-go on
+measured inputs passed (paired CLIP 2-way ID 0.546 vs 0.500 shuffled). A
+degeneracy on FOR inputs (constant images) was traced to ~4× per-voxel
+over-dispersion from small V_t (amplitude ~1/√V_t) and fixed by per-subject
+column-moment standardization. VDVAE-stage scores across all 51 subjects:
+FOR pixcorr 0.094–0.122, subj07 0.109 (inside the FOR range); all subjects
+clear shuffled baseline (+0.02 rule). Zero-shot transfer costs ≈ nothing at
+the reconstruction level.
+
+**Assessor study (2026-08-14, `assessor_score_reconstructions.py` label-free →
+`assessor_group_analysis.py`, `analysis_exploratory/`):** 6 affective
+dimensions; depressed−healthy differences all null (|Δ| ≤ 0.008 rating points,
+95% bootstrap CIs within ±0.024, all BH-adjusted p = 0.87). Reconstructions
+score systematically below originals on valence/arousal/approach (Δ ≈ −0.15
+to −0.47) — a blur effect, uniform across subjects.
+
+**Swap control (2026-08-18, `swap_control_reconstruction.py`,
+`artifacts/swap_control/seed42/`):** because Z_hat is image-only, "subject A
+with subject B's rest" ≡ subject B's prediction; the swap control is therefore
+a seeded cross-subject comparison (fixed `torch.manual_seed`, identical batch
+layout, so all subjects consume identical VDVAE prior draws). Same-image
+cross-subject correlation by stage (6 subjects, 471 images; 29 NaN-degenerate
+rows excluded): decoder inputs 0.613 → predicted latents 0.869 → seeded
+pixels 0.859 → unseeded pixels 0.713. Conclusions: (a) ~half of the apparent
+between-subject image differences in the unseeded run were prior-sampling
+noise; (b) the residual ~0.14 dissimilarity is causally attributable to the
+rest-derived transform but is rendering style, not content — the ridge decoder
+filters most subject-specific input variance (0.613→0.869) by construction.
+This sharpens the D-02 rationale: group signal must be sought in
+connectivity/fingerprint features, not reconstructions. State figures:
+`artifacts/state_figures/` (fig1–6).
+
 **Primary endpoint: connectivity / alignment-basis features**, preregistered, with
 nested CV and subject-label permutation.
 
