@@ -730,6 +730,43 @@ examples", never "representative cases". No statistics.
 optimism risk); if ever added as clearly-labeled secondary, all preprocessing
 and feature selection must sit inside every outer fold and every permutation.
 
+### 7.0a Addendum to the frozen design (2026-08-20, Claude↔Codex implementation review, AGREE_WITH_CHANGES)
+
+1. **Endpoint definition pinned:** the fingerprint primary uses the SAVED
+   zero-shot fingerprint `F_s := C_s·P_s·R_s` from
+   `artifacts/for_inference/seed42/<sub>/fingerprint.npy`; residual
+   = ||F_s − T||_F/||T||_F against the final-model builder template. A second
+   fitted rotation is PROHIBITED (Gate 3 refits one only because it starts
+   from unrotated C·P; the saved FOR fingerprints are already rotation-aligned
+   — `for_inference.py` applies R at inference; label-free audit: double
+   rotation changes values ≤ 6.7e-7 but is definitionally wrong).
+2. **Honest framing:** `for_groups.csv` was already read by the exploratory
+   assessor analysis (2026-08-14). All Phase-5 claims are therefore framed as
+   a "prospectively locked endpoint analysis after prior label exposure" —
+   endpoints and tests specified before THESE endpoints ever met labels, not
+   "before any label access" by the project. This disclosure is mandatory in
+   results.json and any write-up.
+3. **Reliability is a diagnostic, not a gate:** contiguous 117/118-TR
+   split-half reliability (within-half standardization) is reported for the
+   28 connectivity blocks and for the fingerprint residual; no post-hoc
+   threshold is invented.
+4. **Freeze anchor:** endpoint/manifest/calibration/atlas/permutation-schedule
+   hashes are recorded in a GIT-TRACKED `analysis_registry/phase5_freeze.json`
+   before the label run; `analyze` validates the digest before opening the
+   label file and refuses to overwrite existing results.
+5. **Motion adjustment is a versioned second analysis:** Freedman–Lane is
+   implemented and unit-tested but NOT exposed in the production CLI; when
+   motion data arrives, a label-free motion-preparation/freeze stage precedes
+   a separate, explicitly versioned motion-adjusted run.
+6. **Result semantics:** both primary p-values reported raw (no adjustment
+   across the two families; family-wise error across families is explicitly
+   uncontrolled); omnibus reports statistic + p only (no invented effect
+   size); per-endpoint effects = raw group difference + Cohen's d with
+   stratified subject bootstrap (10,000 resamples, percentile CI, named RNG
+   streams); omnibus p is upper-tail (direction-agnostic via squaring),
+   per-block/per-network tests two-sided via |t|; one precomputed 10,000×50
+   permutation schedule shared by all endpoints.
+
 ### 7.0b Illustrative reconstruction, assessor, and swap-control RESULTS (measured 2026-08-14–18)
 
 All exploratory / illustrative under D-02; motion-uncorrected.
@@ -768,8 +805,9 @@ This sharpens the D-02 rationale: group signal must be sought in
 connectivity/fingerprint features, not reconstructions. State figures:
 `artifacts/state_figures/` (fig1–6).
 
-**Primary endpoint: connectivity / alignment-basis features**, preregistered, with
-nested CV and subject-label permutation.
+**Primary endpoint: connectivity / alignment-basis features**, per the frozen
+§7.0 design (two primaries, subject-label permutation; ML classification /
+nested CV rejected as primary — superseded statement corrected 2026-08-20).
 
 **Reconstruction stays secondary and explicitly illustrative.** `Z_hat` depends on
 the image alone, so FOR subject identity enters only through `(P_for, R_for)`; any
