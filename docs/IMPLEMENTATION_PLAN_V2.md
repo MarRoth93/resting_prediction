@@ -805,6 +805,29 @@ This sharpens the D-02 rationale: group signal must be sought in
 connectivity/fingerprint features, not reconstructions. State figures:
 `artifacts/state_figures/` (fig1–6).
 
+### 7.1 Exploratory Phase-5 RESULTS (measured 2026-08-20, motion-uncorrected)
+
+Pipeline: endpoints → calibrate → freeze (commit cc7a275, digest 0a0b125f…) →
+analyze; single label read; all freeze checks passed.
+Measurement quality (label-free): block reliability r=.729–.850 (median .794,
+reproducing the independent design-review audit), fingerprint residual
+reliability r=.868; calibration: fake-label p-values ~uniform, injected d≈1
+detected at 96%.
+
+**Both primaries null.** Primary 1 (global fingerprint residual): depressed
+0.670 vs healthy 0.637, Δ=+0.034 [−0.033, 0.105], d=0.26 [−0.27, 0.86],
+p=0.358. Primary 2 (28-block connectivity omnibus): T=7.07, p=0.854 — the
+combined block profile is *more* similar across groups than typical chance
+relabelings. Exploratory: 0/7 network residuals and 0/28 blocks BH-significant
+(min raw p=.27 SomMot residual; .30 SalVentAttn|Cont block, d=0.30, BH p=.945).
+QC note recorded pre-labels: residual vs mean DVARS ρ=.29 — motion adjustment
+(Freedman–Lane, dormant) remains the required confirmatory step.
+
+Interpretation under the frozen claim policy: a preregistered pipeline
+detected NO group association in the delivered dataset at these endpoints
+(exploratory, motion-unresolved). n=50 power caveat: effects below d≈0.8 were
+never likely to clear α=.05.
+
 **Primary endpoint: connectivity / alignment-basis features**, per the frozen
 §7.0 design (two primaries, subject-label permutation; ML classification /
 nested CV rejected as primary — superseded statement corrected 2026-08-20).
